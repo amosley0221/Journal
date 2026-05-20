@@ -252,58 +252,91 @@ function JournalApp({ skin, layout = 'mobile', session }) {
   };
 
   // Swipe between top-level sections.
-  // We use touch events with an early direction-lock so vertical scrolling
-  // inside the body doesn't fight horizontal swipes. The container gets
-  // `touch-action: pan-y` so the browser hands us horizontal gestures cleanly.
-  const swipeStart = React.useRef(null);
-  const swipeAxis  = React.useRef(null); // 'h' | 'v' | null
-  function commitSwipe(dx, dt) {
-    if (Math.abs(dx) < 50) return;
-    if (dt > 800) return;
-    const order = ['home', ...sections.map((s) => s.id)];
-    const i = order.indexOf(path[0]);
-    const next = dx < 0 ? order[Math.min(i + 1, order.length - 1)] : order[Math.max(i - 1, 0)];
-    if (next && next !== path[0]) selectSection(next);
-  }
-  const swipeHandlers = {
-    onTouchStart: (e) => {
-      const t = e.touches[0];
-      swipeStart.current = { x: t.clientX, y: t.clientY, t: Date.now() };
-      swipeAxis.current = null;
-    },
-    onTouchMove: (e) => {
-      const s = swipeStart.current;
-      if (!s) return;
-      const t = e.touches[0];
-      const dx = t.clientX - s.x;
-      const dy = t.clientY - s.y;
-      if (!swipeAxis.current && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
-        swipeAxis.current = Math.abs(dx) > Math.abs(dy) * 1.2 ? 'h' : 'v';
+  // We attach NATIVE touch listeners via useEffect because React's synthetic
+  // touch handlers don't reliably fire when an inner element starts a
+  // scroll/overscroll — Safari/Chrome dispatch touchcancel before React's
+  // touchend gets a chance, and the gesture was being lost.
+  const bodyWrapRef = React.useRef(null);
+  // Latest values without re-binding listeners on every render.
+  const swipeState = React.useRef({ sections, currentId: path[0], selectSection });
+  swipeState.current = { sections, currentId: path[0], selectSection };
+
+  React.useEffect(() => {
+    const el = bodyWrapRef.current;
+    if (!el) return;
+    let start = null;
+    let axis = null;
+
+    function pickNext(dx) {
+      const { sections: secs, currentId, selectSection: pick } = swipeState.current;
+      const order = ['home', ...secs.map((s) => s.id)];
+      const i = order.indexOf(currentId);
+      if (i < 0) return;
+      const j = dx < 0 ? Math.min(i + 1, order.length - 1) : Math.max(i - 1, 0);
+      if (order[j] && order[j] !== currentId) {
+        pick(order[j]);
+        if (navigator.vibrate) navigator.vibrate(8);
       }
-    },
-    onTouchEnd: (e) => {
-      const s = swipeStart.current;
-      swipeStart.current = null;
-      if (!s || swipeAxis.current !== 'h') { swipeAxis.current = null; return; }
-      const t = e.changedTouches[0];
-      commitSwipe(t.clientX - s.x, Date.now() - s.t);
-      swipeAxis.current = null;
-    },
-    // Mouse fallback so the gesture works on a trackpad too.
-    onPointerDown: (e) => {
-      if (e.pointerType !== 'mouse' || e.button !== 0) return;
-      swipeStart.current = { x: e.clientX, y: e.clientY, t: Date.now() };
-    },
-    onPointerUp: (e) => {
-      if (e.pointerType !== 'mouse') return;
-      const s = swipeStart.current;
-      swipeStart.current = null;
-      if (!s) return;
-      const dy = e.clientY - s.y;
+    }
+
+    function onStart(e) {
+      if (e.touches.length !== 1) { start = null; return; }
+      const t = e.touches[0];
+      start = { x: t.clientX, y: t.clientY, t: Date.now() };
+      axis = null;
+    }
+    function onMove(e) {
+      if (!start || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const dx = t.clientX - start.x;
+      const dy = t.clientY - start.y;
+      if (!axis && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+        axis = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+      }
+    }
+    function onEnd(e) {
+      if (!start) return;
+      const t = e.changedTouches && e.changedTouches[0];
+      if (axis === 'h' && t) {
+        const dx = t.clientX - start.x;
+        const dt = Date.now() - start.t;
+        if (Math.abs(dx) > 40 && dt < 900) pickNext(dx);
+      }
+      start = null; axis = null;
+    }
+    function onCancel() { start = null; axis = null; }
+
+    // Mouse drag fallback (desktop / trackpad)
+    let mStart = null;
+    function onMouseDown(e) {
+      if (e.button !== 0) return;
+      mStart = { x: e.clientX, y: e.clientY, t: Date.now() };
+    }
+    function onMouseUp(e) {
+      if (!mStart) return;
+      const dx = e.clientX - mStart.x;
+      const dy = e.clientY - mStart.y;
+      const dt = Date.now() - mStart.t;
+      mStart = null;
       if (Math.abs(dy) > 60) return;
-      commitSwipe(e.clientX - s.x, Date.now() - s.t);
-    },
-  };
+      if (Math.abs(dx) > 80 && dt < 700) pickNext(dx);
+    }
+
+    el.addEventListener('touchstart',  onStart,  { passive: true });
+    el.addEventListener('touchmove',   onMove,   { passive: true });
+    el.addEventListener('touchend',    onEnd,    { passive: true });
+    el.addEventListener('touchcancel', onCancel, { passive: true });
+    el.addEventListener('mousedown',   onMouseDown);
+    el.addEventListener('mouseup',     onMouseUp);
+    return () => {
+      el.removeEventListener('touchstart',  onStart);
+      el.removeEventListener('touchmove',   onMove);
+      el.removeEventListener('touchend',    onEnd);
+      el.removeEventListener('touchcancel', onCancel);
+      el.removeEventListener('mousedown',   onMouseDown);
+      el.removeEventListener('mouseup',     onMouseUp);
+    };
+  }, []);
 
   if (!sync.loaded) {
     return (
@@ -383,8 +416,8 @@ function JournalApp({ skin, layout = 'mobile', session }) {
           </div>
           <Slider currentId={path[0]} setSection={selectSection} sections={sections} />
           <div
+            ref={bodyWrapRef}
             style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', touchAction: 'pan-y' }}
-            {...swipeHandlers}
           >
             {body}
           </div>

@@ -894,8 +894,11 @@
   .layout-phone .compose-fab { bottom: 30px; right: 18px; width: 52px; height: 52px; }
 
   /* ─── Phone (iPhone Pro Max) tweaks ─── */
-  .layout-phone .slider-wrap { padding: 6px 14px 4px; justify-content: flex-start; }
-  .layout-phone .slider { width: 100%; }
+  .layout-phone .slider-wrap { padding: 6px 14px 4px; justify-content: center; }
+  /* On phone, the rail sizes to content (centered) when items fit, and only
+     scrolls horizontally when they overflow — so a short rail doesn't show
+     dead space after the last pill. */
+  .layout-phone .slider { width: auto; max-width: 100%; }
   .layout-phone .sub-row { padding: 6px 14px 8px; }
   .layout-phone .split { padding: 4px 14px 16px; gap: 0; }
   .layout-phone .split-phone .split-rail,
