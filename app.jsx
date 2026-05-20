@@ -799,14 +799,34 @@ function SectionsManager({ sections, setSections, accent }) {
   const renameNode = (path, name) => updateAt(path, (n) => ({ ...n, name }));
   const deleteNode = (path) => updateAt(path, () => null);
 
+  // Reorder a node within its parent. dir = -1 (up) | +1 (down). No-ops at the
+  // boundary so it's safe to call from a disabled-when-edge button.
+  const moveNode = (path, dir) => {
+    setSections((s) => {
+      const next = JSON.parse(JSON.stringify(s));
+      let layer = next;
+      for (let i = 0; i < path.length - 1; i++) {
+        const idx = layer.findIndex((n) => n.id === path[i]);
+        layer = layer[idx].children;
+      }
+      const i = layer.findIndex((n) => n.id === path[path.length - 1]);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= layer.length) return s; // no change
+      [layer[i], layer[j]] = [layer[j], layer[i]];
+      return next;
+    });
+  };
+
   return (
     <div className="sections-mgr">
       <div className="sections-mgr-list">
         {sections.map((s, i) => (
           <SectionRow key={s.id} node={s} path={[s.id]} depth={0}
+            index={i} siblingCount={sections.length}
             renaming={renaming} setRenaming={setRenaming} draft={draft} setDraft={setDraft}
             addingTo={addingTo} setAddingTo={setAddingTo}
             addAt={addAt} renameNode={renameNode} deleteNode={deleteNode}
+            moveNode={moveNode}
             accent={accent}
           />
         ))}
@@ -827,7 +847,7 @@ function SectionsManager({ sections, setSections, accent }) {
   );
 }
 
-function SectionRow({ node, path, depth, renaming, setRenaming, draft, setDraft, addingTo, setAddingTo, addAt, renameNode, deleteNode, accent }) {
+function SectionRow({ node, path, depth, index, siblingCount, renaming, setRenaming, draft, setDraft, addingTo, setAddingTo, addAt, renameNode, deleteNode, moveNode, accent }) {
   const [expanded, setExpanded] = React.useState(depth < 1);
   const hasChildren = node.children && node.children.length > 0;
   const isRenaming = renaming && renaming.join('/') === path.join('/');
@@ -867,6 +887,22 @@ function SectionRow({ node, path, depth, renaming, setRenaming, draft, setDraft,
         )}
         <span className="sec-row-count">{entryCount} entries</span>
         <div className="sec-row-actions">
+          <button
+            className="sec-row-act"
+            title="Move up"
+            disabled={index === 0}
+            onClick={() => moveNode(path, -1)}
+          >
+            <window.Icon name="chevron" size={12} style={{ transform: 'rotate(-90deg)' }} />
+          </button>
+          <button
+            className="sec-row-act"
+            title="Move down"
+            disabled={index >= siblingCount - 1}
+            onClick={() => moveNode(path, +1)}
+          >
+            <window.Icon name="chevron" size={12} style={{ transform: 'rotate(90deg)' }} />
+          </button>
           {depth < 2 && (
             <button className="sec-row-act" title="Add inside"
               onClick={() => { setAddingTo(path); setDraft(''); }}>
@@ -888,11 +924,13 @@ function SectionRow({ node, path, depth, renaming, setRenaming, draft, setDraft,
 
       {expanded && (
         <div>
-          {hasChildren && node.children.map((c) => (
+          {hasChildren && node.children.map((c, ci) => (
             <SectionRow key={c.id} node={c} path={[...path, c.id]} depth={depth + 1}
+              index={ci} siblingCount={node.children.length}
               renaming={renaming} setRenaming={setRenaming} draft={draft} setDraft={setDraft}
               addingTo={addingTo} setAddingTo={setAddingTo}
               addAt={addAt} renameNode={renameNode} deleteNode={deleteNode}
+              moveNode={moveNode}
               accent={accent}
             />
           ))}
