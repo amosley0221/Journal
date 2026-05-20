@@ -3,6 +3,88 @@
 (() => {
 const { useState, useMemo, useEffect } = React;
 
+// ─── Section icon library ─────────────────────────────────────────
+// Each entry pairs a glyph (emoji renders cleanly at small sizes on every
+// platform) with keywords that trigger auto-suggestion as the user types a
+// section name. Users can override the suggestion with the picker.
+const ICON_LIBRARY = [
+  { glyph: '🎓', keys: ['school','college','university','class','study','grad','gtcc','academic','edu','semester','course'] },
+  { glyph: '📚', keys: ['book','read','library','literature','novel'] },
+  { glyph: '💼', keys: ['work','job','office','career','business','company'] },
+  { glyph: '✈️', keys: ['travel','trip','vacation','journey','flight','airport'] },
+  { glyph: '❤️', keys: ['life','personal','daily','love','heart'] },
+  { glyph: '🌙', keys: ['dream','sleep','night','moon'] },
+  { glyph: '🏃', keys: ['fitness','run','gym','workout','exercise','sport','training'] },
+  { glyph: '🍳', keys: ['food','cook','recipe','meal','kitchen','baking'] },
+  { glyph: '🎵', keys: ['music','song','audio','playlist','band'] },
+  { glyph: '🎨', keys: ['art','draw','paint','design','sketch'] },
+  { glyph: '💸', keys: ['finance','money','budget','expense','spending','bills'] },
+  { glyph: '🐾', keys: ['pet','dog','cat','animal'] },
+  { glyph: '🎯', keys: ['goal','target','plan','okr'] },
+  { glyph: '📷', keys: ['photo','picture','image','camera','shoot'] },
+  { glyph: '🎬', keys: ['movie','film','video','tv','show','cinema'] },
+  { glyph: '🎮', keys: ['game','gaming','play','console'] },
+  { glyph: '🧠', keys: ['idea','brainstorm','think','thought','mind'] },
+  { glyph: '🌍', keys: ['nature','outdoor','earth','world','environment'] },
+  { glyph: '🏠', keys: ['home','house','household'] },
+  { glyph: '🩺', keys: ['health','doctor','medical','wellness','clinic'] },
+  { glyph: '💭', keys: ['journal','note','memory','reflect','diary'] },
+  { glyph: '🌱', keys: ['growth','progress','habit','sprout','plant'] },
+  { glyph: '📅', keys: ['calendar','schedule','date','event','planner'] },
+  { glyph: '⭐', keys: ['favorite','star','best','top'] },
+  { glyph: '☕', keys: ['coffee','cafe','tea','drink'] },
+  { glyph: '🛠️', keys: ['project','build','diy','hack'] },
+  { glyph: '🧘', keys: ['meditation','mindful','calm','yoga'] },
+  { glyph: '✦', keys: [] },
+  { glyph: '◆', keys: [] },
+  { glyph: '◉', keys: [] },
+  { glyph: '☾', keys: [] },
+];
+
+function suggestIcon(name) {
+  const n = (name || '').toLowerCase().trim();
+  if (!n) return '✦';
+  for (const { glyph, keys } of ICON_LIBRARY) {
+    if (keys.some((k) => n.includes(k))) return glyph;
+  }
+  return n.charAt(0).toUpperCase();
+}
+
+// Popover icon picker — anchors to whatever the caller passes via `anchor` prop.
+function IconPicker({ value, onPick, onClose }) {
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    function onDoc(e) {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    }
+    function onKey(e) { if (e.key === 'Escape') onClose(); }
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+  return (
+    <div ref={ref} className="icon-picker">
+      <div className="icon-picker-label">Pick an icon</div>
+      <div className="icon-picker-grid">
+        {ICON_LIBRARY.map((it) => (
+          <button
+            key={it.glyph}
+            type="button"
+            className={`icon-picker-chip ${value === it.glyph ? 'is-active' : ''}`}
+            onMouseDown={(e) => { e.preventDefault(); onPick(it.glyph); }}
+            title={it.keys[0] || ''}
+          >
+            <span>{it.glyph}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Walk the section tree to find a path matching `pathIds` (array of ids)
 // going from root to leaf. Returns { node, parents } or null.
 function findPath(sections, pathIds) {
@@ -768,12 +850,12 @@ function SectionsManager({ sections, setSections, accent }) {
     });
   };
 
-  const addAt = (parentPath, name) => {
+  const addAt = (parentPath, name, glyph) => {
     const id = 'usr-' + Date.now().toString(36) + '-' + Math.floor(Math.random() * 999);
     setSections((s) => {
       const next = JSON.parse(JSON.stringify(s));
       const newNode = parentPath.length === 0
-        ? { id, name, glyph: name.charAt(0).toUpperCase(), hue: Math.floor(Math.random() * 360), entries: [] }
+        ? { id, name, glyph: glyph || suggestIcon(name), hue: Math.floor(Math.random() * 360), entries: [] }
         : { id, name, entries: [] };
       if (parentPath.length === 0) {
         next.push(newNode);
@@ -797,6 +879,7 @@ function SectionsManager({ sections, setSections, accent }) {
   };
 
   const renameNode = (path, name) => updateAt(path, (n) => ({ ...n, name }));
+  const setIcon    = (path, glyph) => updateAt(path, (n) => ({ ...n, glyph }));
   const deleteNode = (path) => updateAt(path, () => null);
 
   // Reorder a node within its parent. dir = -1 (up) | +1 (down). No-ops at the
@@ -826,14 +909,14 @@ function SectionsManager({ sections, setSections, accent }) {
             renaming={renaming} setRenaming={setRenaming} draft={draft} setDraft={setDraft}
             addingTo={addingTo} setAddingTo={setAddingTo}
             addAt={addAt} renameNode={renameNode} deleteNode={deleteNode}
-            moveNode={moveNode}
+            moveNode={moveNode} setIcon={setIcon}
             accent={accent}
           />
         ))}
       </div>
       {addingTo === 'root' ? (
-        <AddRow draft={draft} setDraft={setDraft}
-          onCommit={() => { if (draft.trim()) addAt([], draft.trim()); setAddingTo(null); setDraft(''); }}
+        <AddRow draft={draft} setDraft={setDraft} showIcon
+          onCommit={(glyph) => { if (draft.trim()) addAt([], draft.trim(), glyph); setAddingTo(null); setDraft(''); }}
           onCancel={() => { setAddingTo(null); setDraft(''); }}
           placeholder="New section (e.g. Recipes, Workouts…)"
           accent={accent}
@@ -847,7 +930,8 @@ function SectionsManager({ sections, setSections, accent }) {
   );
 }
 
-function SectionRow({ node, path, depth, index, siblingCount, renaming, setRenaming, draft, setDraft, addingTo, setAddingTo, addAt, renameNode, deleteNode, moveNode, accent }) {
+function SectionRow({ node, path, depth, index, siblingCount, renaming, setRenaming, draft, setDraft, addingTo, setAddingTo, addAt, renameNode, deleteNode, moveNode, setIcon, accent }) {
+  const [iconPickerOpen, setIconPickerOpen] = React.useState(false);
   const [expanded, setExpanded] = React.useState(depth < 1);
   const hasChildren = node.children && node.children.length > 0;
   const isRenaming = renaming && renaming.join('/') === path.join('/');
@@ -865,7 +949,25 @@ function SectionRow({ node, path, depth, index, siblingCount, renaming, setRenam
         >
           <window.Icon name="chevron" size={11} style={{ transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.18s', opacity: hasChildren ? 0.8 : 0.3 }} />
         </button>
-        {depth === 0 && <span className="sec-row-glyph">{node.glyph}</span>}
+        {depth === 0 && (
+          <span className="sec-row-glyph-wrap">
+            <button
+              type="button"
+              className="sec-row-glyph sec-row-glyph-btn"
+              onClick={() => setIconPickerOpen((o) => !o)}
+              title="Change icon"
+            >
+              {node.glyph}
+            </button>
+            {iconPickerOpen && (
+              <IconPicker
+                value={node.glyph}
+                onPick={(g) => { setIcon(path, g); setIconPickerOpen(false); }}
+                onClose={() => setIconPickerOpen(false)}
+              />
+            )}
+          </span>
+        )}
         {isRenaming ? (
           <input
             className="sec-row-input"
@@ -930,14 +1032,14 @@ function SectionRow({ node, path, depth, index, siblingCount, renaming, setRenam
               renaming={renaming} setRenaming={setRenaming} draft={draft} setDraft={setDraft}
               addingTo={addingTo} setAddingTo={setAddingTo}
               addAt={addAt} renameNode={renameNode} deleteNode={deleteNode}
-              moveNode={moveNode}
+              moveNode={moveNode} setIcon={setIcon}
               accent={accent}
             />
           ))}
           {isAddingHere && (
             <div style={{ paddingLeft: 8 + (depth + 1) * 18 }}>
               <AddRow draft={draft} setDraft={setDraft}
-                onCommit={() => { if (draft.trim()) addAt(path, draft.trim()); setAddingTo(null); setDraft(''); }}
+                onCommit={(glyph) => { if (draft.trim()) addAt(path, draft.trim(), glyph); setAddingTo(null); setDraft(''); }}
                 onCancel={() => { setAddingTo(null); setDraft(''); }}
                 placeholder={depth === 0 ? 'New (e.g. Spring 2026, Q3 sprint…)' : 'New (e.g. CIS 110, Onboarding…)'}
                 accent={accent}
@@ -950,15 +1052,45 @@ function SectionRow({ node, path, depth, index, siblingCount, renaming, setRenam
   );
 }
 
-function AddRow({ draft, setDraft, onCommit, onCancel, placeholder, accent }) {
+function AddRow({ draft, setDraft, onCommit, onCancel, placeholder, accent, showIcon }) {
+  // Local icon state: tracks whether the user has manually picked one.
+  // If not, the displayed icon auto-suggests from the current draft.
+  const [pickedGlyph, setPickedGlyph] = React.useState(null);
+  const [open, setOpen] = React.useState(false);
+  const effectiveGlyph = pickedGlyph || (showIcon ? suggestIcon(draft) : null);
+
+  function commit() {
+    onCommit(showIcon ? effectiveGlyph : undefined);
+  }
+
   return (
-    <form className="sec-add-row" onSubmit={(e) => { e.preventDefault(); onCommit(); }}>
-      <window.Icon name="plus" size={13} style={{ opacity: 0.5 }} />
+    <form className="sec-add-row" onSubmit={(e) => { e.preventDefault(); commit(); }}>
+      {showIcon ? (
+        <span className="sec-add-icon-wrap">
+          <button
+            type="button"
+            className="sec-add-icon"
+            onMouseDown={(e) => { e.preventDefault(); setOpen((o) => !o); }}
+            title="Pick an icon"
+          >
+            {effectiveGlyph}
+          </button>
+          {open && (
+            <IconPicker
+              value={effectiveGlyph}
+              onPick={(g) => { setPickedGlyph(g); setOpen(false); }}
+              onClose={() => setOpen(false)}
+            />
+          )}
+        </span>
+      ) : (
+        <window.Icon name="plus" size={13} style={{ opacity: 0.5 }} />
+      )}
       <input
         autoFocus
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={onCommit}
+        onBlur={commit}
         onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
         placeholder={placeholder}
       />
