@@ -63,11 +63,11 @@
   .app-dark  { --panel: rgba(20,21,24,0.55); --panel-border: 1px solid rgba(255,255,255,0.08); --panel-strong: rgba(20,21,24,0.78); --hairline: rgba(255,255,255,0.08); --ink-soft: rgba(255,255,255,0.06); --ink-softer: rgba(255,255,255,0.04); }
   .app-light { color: #1a1a1c; --panel: rgba(255,255,255,0.55); --panel-border: 1px solid rgba(0,0,0,0.08); --panel-strong: rgba(255,255,255,0.82); --hairline: rgba(0,0,0,0.08); --ink-soft: rgba(0,0,0,0.05); --ink-softer: rgba(0,0,0,0.03); }
 
-  .statusbar { display: flex; align-items: center; justify-content: space-between; padding: 14px 26px 6px; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
-  .statusbar-time { font-variant-numeric: tabular-nums; }
-  .statusbar-pill { width: 70px; height: 22px; border-radius: 999px; background: #000; position: absolute; left: 50%; transform: translateX(-50%); margin-top: 0; opacity: 0.85; }
-  .skin-restrained .statusbar-pill { background: #000; }
-  .statusbar-right { display: flex; align-items: center; gap: 6px; opacity: 0.85; }
+  .statusbar,
+  .layout-phone .statusbar,
+  .layout-phone .statusbar-pill,
+  .layout-phone::after,
+  .app.layout-phone .home-indicator { display: none !important; }
 
   .wordmark-text { font-weight: 600; letter-spacing: -0.02em; font-size: 17px; }
 
@@ -892,8 +892,6 @@
   .layout-phone .compose-fab { bottom: 30px; right: 18px; width: 52px; height: 52px; }
 
   /* ─── Phone (iPhone Pro Max) tweaks ─── */
-  .layout-phone .statusbar { padding: 12px 22px 4px; font-size: 15px; }
-  .layout-phone .statusbar-pill { width: 110px; height: 32px; }
   .layout-phone .slider-wrap { padding: 6px 14px 4px; justify-content: flex-start; }
   .layout-phone .slider { width: 100%; }
   .layout-phone .sub-row { padding: 6px 14px 8px; }
@@ -911,18 +909,6 @@
   .layout-phone .home-featured-preview { font-size: 13px; }
   .layout-phone .home-recent { grid-template-columns: 1fr; }
   .layout-phone .home-stats { grid-template-columns: 1fr 1fr; gap: 8px; }
-  /* Phone home indicator bar */
-  .layout-phone::after,
-  .app.layout-phone .home-indicator {
-    content: '';
-    position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
-    width: 134px; height: 5px;
-    border-radius: 999px;
-    background: rgba(255,255,255,0.85);
-    pointer-events: none;
-    z-index: 5;
-  }
-  .app-light.layout-phone::after { background: rgba(0,0,0,0.85); }
 
   /* Hide mini-map on phone (overlaps body too much) */
   .layout-phone .entry-view .paper > div[style*="position: absolute"][style*="right: 18px"] { display: none; }

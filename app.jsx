@@ -334,15 +334,7 @@ function JournalApp({ skin, layout = 'mobile', session }) {
         />
       ) : (
         <div style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
-          <div className="statusbar">
-            <span className="statusbar-time">9:41</span>
-            <div className="statusbar-pill" />
-            <span className="statusbar-right">
-              <span style={{ letterSpacing: '0.06em' }}>5G</span>
-              <Battery />
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 22px 8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 22px 8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <Wordmark accent={accent} />
               <span className="wordmark-text">Journal<span style={{ color: accent }}>+</span></span>
