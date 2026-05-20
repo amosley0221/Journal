@@ -9,6 +9,6 @@
 // Render "build" step that writes this file from env vars.
 
 window.JOURNAL_CONFIG = {
-  SUPABASE_URL: '',
-  SUPABASE_ANON_KEY: '',
+  SUPABASE_URL: 'https://exhwjoaferzvxzntueah.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_zNLm32glApYRo7WPivi2Uw_LlmYwiej',
 };
