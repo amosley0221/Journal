@@ -10,10 +10,45 @@
   const url = cfg.SUPABASE_URL;
   const key = cfg.SUPABASE_ANON_KEY;
 
+  // ─── Storage adapter that honors "Stay signed in" ────────────────
+  // When persist=true (default), session lives in localStorage and survives
+  // browser restarts. When persist=false, it goes to sessionStorage and dies
+  // with the tab.
+  const PERSIST_KEY = 'journal:persist';
+  function getPersist() {
+    try { return localStorage.getItem(PERSIST_KEY) !== '0'; } catch { return true; }
+  }
+  function setPersistSession(persist) {
+    try { localStorage.setItem(PERSIST_KEY, persist ? '1' : '0'); } catch {}
+  }
+  const authStorage = {
+    getItem: (k) => {
+      try { return localStorage.getItem(k) ?? sessionStorage.getItem(k); }
+      catch { return null; }
+    },
+    setItem: (k, v) => {
+      try {
+        if (getPersist()) {
+          localStorage.setItem(k, v); sessionStorage.removeItem(k);
+        } else {
+          sessionStorage.setItem(k, v); localStorage.removeItem(k);
+        }
+      } catch {}
+    },
+    removeItem: (k) => {
+      try { localStorage.removeItem(k); sessionStorage.removeItem(k); } catch {}
+    },
+  };
+
   const configured = !!(url && key && window.supabase && window.supabase.createClient);
   const client = configured
     ? window.supabase.createClient(url, key, {
-        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: false,
+          storage: authStorage,
+        },
       })
     : null;
 
@@ -196,6 +231,8 @@
   }
 
   Object.assign(window, {
-    useAuth, useSyncedJournal, signIn, signUp, signOut, sendPasswordReset,
+    useAuth, useSyncedJournal,
+    signIn, signUp, signOut, sendPasswordReset,
+    setPersistSession, getPersist,
   });
 })();
