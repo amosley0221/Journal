@@ -251,25 +251,57 @@ function JournalApp({ skin, layout = 'mobile', session }) {
     if (layout === 'phone') setPhoneShow('detail');
   };
 
-  // Swipe between top-level sections
+  // Swipe between top-level sections.
+  // We use touch events with an early direction-lock so vertical scrolling
+  // inside the body doesn't fight horizontal swipes. The container gets
+  // `touch-action: pan-y` so the browser hands us horizontal gestures cleanly.
   const swipeStart = React.useRef(null);
+  const swipeAxis  = React.useRef(null); // 'h' | 'v' | null
+  function commitSwipe(dx, dt) {
+    if (Math.abs(dx) < 50) return;
+    if (dt > 800) return;
+    const order = ['home', ...sections.map((s) => s.id)];
+    const i = order.indexOf(path[0]);
+    const next = dx < 0 ? order[Math.min(i + 1, order.length - 1)] : order[Math.max(i - 1, 0)];
+    if (next && next !== path[0]) selectSection(next);
+  }
   const swipeHandlers = {
+    onTouchStart: (e) => {
+      const t = e.touches[0];
+      swipeStart.current = { x: t.clientX, y: t.clientY, t: Date.now() };
+      swipeAxis.current = null;
+    },
+    onTouchMove: (e) => {
+      const s = swipeStart.current;
+      if (!s) return;
+      const t = e.touches[0];
+      const dx = t.clientX - s.x;
+      const dy = t.clientY - s.y;
+      if (!swipeAxis.current && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+        swipeAxis.current = Math.abs(dx) > Math.abs(dy) * 1.2 ? 'h' : 'v';
+      }
+    },
+    onTouchEnd: (e) => {
+      const s = swipeStart.current;
+      swipeStart.current = null;
+      if (!s || swipeAxis.current !== 'h') { swipeAxis.current = null; return; }
+      const t = e.changedTouches[0];
+      commitSwipe(t.clientX - s.x, Date.now() - s.t);
+      swipeAxis.current = null;
+    },
+    // Mouse fallback so the gesture works on a trackpad too.
     onPointerDown: (e) => {
-      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
       swipeStart.current = { x: e.clientX, y: e.clientY, t: Date.now() };
     },
     onPointerUp: (e) => {
-      if (!swipeStart.current) return;
-      const dx = e.clientX - swipeStart.current.x;
-      const dy = e.clientY - swipeStart.current.y;
-      const dt = Date.now() - swipeStart.current.t;
+      if (e.pointerType !== 'mouse') return;
+      const s = swipeStart.current;
       swipeStart.current = null;
-      if (Math.abs(dx) > 90 && Math.abs(dy) < 60 && dt < 700) {
-        const order = ['home', ...sections.map((s) => s.id)];
-        const i = order.indexOf(path[0]);
-        const next = dx < 0 ? order[Math.min(i + 1, order.length - 1)] : order[Math.max(i - 1, 0)];
-        if (next && next !== path[0]) selectSection(next);
-      }
+      if (!s) return;
+      const dy = e.clientY - s.y;
+      if (Math.abs(dy) > 60) return;
+      commitSwipe(e.clientX - s.x, Date.now() - s.t);
     },
   };
 
@@ -351,7 +383,7 @@ function JournalApp({ skin, layout = 'mobile', session }) {
           </div>
           <Slider currentId={path[0]} setSection={selectSection} sections={sections} />
           <div
-            style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+            style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', touchAction: 'pan-y' }}
             {...swipeHandlers}
           >
             {body}
@@ -415,13 +447,29 @@ function deepClone(x) { return JSON.parse(JSON.stringify(x)); }
 // ─── Slider (Apple-glass capsule, no add/edit buttons) ──────────────
 function Slider({ currentId, setSection, sections }) {
   const items = [{ id: 'home', name: 'Home', glyph: '⌂' }, ...sections];
+  const trackRef = React.useRef(null);
+  const activeRef = React.useRef(null);
+
+  // When the active section changes (click or swipe), scroll the active pill
+  // into the center of the rail so it stays visible.
+  React.useEffect(() => {
+    const track = trackRef.current;
+    const el = activeRef.current;
+    if (!track || !el) return;
+    const er = el.getBoundingClientRect();
+    const tr = track.getBoundingClientRect();
+    const target = (el.offsetLeft - track.clientWidth / 2) + (er.width / 2);
+    track.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
+  }, [currentId, items.length]);
+
   return (
     <div className="slider-wrap">
-      <div className="slider">
+      <div className="slider" ref={trackRef}>
         {items.map((s) => {
           const active = s.id === currentId;
           return (
             <button key={s.id} onClick={() => setSection(s.id)}
+              ref={active ? activeRef : null}
               className={`slider-item ${active ? 'slider-item-active' : ''}`}>
               <span className="slider-glyph">{s.glyph}</span>
               <span>{s.name}</span>
