@@ -92,6 +92,7 @@
       photoState: {},
       stickyState: {},
       themeState: {},
+      displayName: '',
     }), []);
 
     const [data, setData] = React.useState(initial);
@@ -203,6 +204,7 @@
       setPhotoState: makeSetter('photoState'),
       setStickyState: makeSetter('stickyState'),
       setThemeState: makeSetter('themeState'),
+      setDisplayName: makeSetter('displayName'),
     };
   }
 

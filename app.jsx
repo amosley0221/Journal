@@ -75,6 +75,8 @@ function JournalApp({ skin, layout = 'mobile', session }) {
   const setStickyState = sync.setStickyState;
   const themeState = sync.data.themeState;
   const setThemeState = sync.setThemeState;
+  const displayName = sync.data.displayName || '';
+  const setDisplayName = sync.setDisplayName;
 
   // Local-only UI state (intentionally per-device, not synced)
   const [path, setPath] = useState(['home']);  // ['home'] or [sectionId, childId?, ...]
@@ -220,6 +222,7 @@ function JournalApp({ skin, layout = 'mobile', session }) {
       phoneShow={phoneShow} setPhoneShow={setPhoneShow}
       openCompose={() => setOverlay('compose')}
       onSelectSection={selectSection}
+      displayName={displayName}
     />
   );
 
@@ -298,6 +301,7 @@ function JournalApp({ skin, layout = 'mobile', session }) {
           sections={sections} setSections={setSections}
           accentOverride={accentOverride} setAccentOverride={setAccentOverride}
           session={session} syncStatus={sync.syncStatus}
+          displayName={displayName} setDisplayName={setDisplayName}
         />
       )}
       {overlay === 'compose' && (
@@ -374,7 +378,7 @@ function BodyRouter(p) {
   if (p.path[0] === 'home') {
     return <HomeBody accent={p.accent} sections={p.sections} onSelectSection={p.onSelectSection}
       openEntry={({ path: pp, entryId: eid }) => { p.drillTo(pp); setTimeout(() => p.selectEntry({ id: eid }), 0); }}
-      onCompose={p.openCompose} layout={p.layout} />;
+      onCompose={p.openCompose} layout={p.layout} displayName={p.displayName} />;
   }
   const root = p.sections.find((s) => s.id === p.path[0]);
   if (!root) return null;
@@ -490,7 +494,7 @@ function ChildGrid({ items, onPick, accent }) {
 }
 
 // ─── HomeBody (greeting, continue, recent, stats) ──────────────────
-function HomeBody({ accent, sections, onSelectSection, openEntry, layout }) {
+function HomeBody({ accent, sections, onSelectSection, openEntry, layout, displayName }) {
   const all = useMemo(() => {
     const out = [];
     const walk = (nodes, trail, rootSection) => {
@@ -540,7 +544,7 @@ function HomeBody({ accent, sections, onSelectSection, openEntry, layout }) {
     <div className="home-body">
       <div className="home-greet">
         <div className="home-dateline">Tuesday · May 20 · 2026</div>
-        <h1 className="home-hello">Good morning, <span style={{ color: accent }}>writer</span>.</h1>
+        <h1 className="home-hello">Good morning, <span style={{ color: accent }}>{(displayName && displayName.trim()) || 'writer'}</span>.</h1>
         <div className="home-sub">You wrote {weekCount} entries this week.</div>
       </div>
 
@@ -936,8 +940,50 @@ function countEntries(node) {
   return n;
 }
 
+// Display-name field for the Account tab. Writes go through the synced setter,
+// which is already debounced 600ms before it hits Supabase.
+function DisplayNameField({ value, onChange, accent }) {
+  const shown = (value && value.trim()) || 'writer';
+  return (
+    <div style={{
+      padding: '14px 14px', marginBottom: 8,
+      background: 'var(--panel)', border: 'var(--panel-border)', borderRadius: 14,
+      display: 'flex', flexDirection: 'column', gap: 8,
+    }}>
+      <label style={{
+        fontFamily: 'JetBrains Mono, monospace',
+        fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase',
+        opacity: 0.55,
+      }}>
+        Your name
+      </label>
+      <input
+        type="text"
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="What should we call you?"
+        maxLength={48}
+        autoComplete="given-name"
+        style={{
+          width: '100%',
+          padding: '10px 14px', borderRadius: 999,
+          background: 'var(--ink-soft)',
+          border: '1px solid var(--hairline)',
+          color: 'inherit', font: 'inherit', fontSize: 14, letterSpacing: '-0.005em',
+          outline: 'none',
+        }}
+        onFocus={(e) => { e.currentTarget.style.borderColor = accent; }}
+        onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--hairline)'; }}
+      />
+      <div style={{ fontSize: 11.5, opacity: 0.55, lineHeight: 1.5 }}>
+        Shown on the home screen — “Good morning, <span style={{ color: accent }}>{shown}</span>.”
+      </div>
+    </div>
+  );
+}
+
 // ─── Settings overlay ──────────────────────────────────────────────
-function SettingsOverlay({ close, appTheme, setAppTheme, accent, skin, sections, setSections, accentOverride, setAccentOverride, session, syncStatus }) {
+function SettingsOverlay({ close, appTheme, setAppTheme, accent, skin, sections, setSections, accentOverride, setAccentOverride, session, syncStatus, displayName, setDisplayName }) {
   const [pwTab, setPwTab] = React.useState('keypad');
   const [tab, setTab] = React.useState('sections');
   return (
@@ -1016,7 +1062,8 @@ function SettingsOverlay({ close, appTheme, setAppTheme, accent, skin, sections,
 
       {tab === 'account' && (
         <SettingsSection title="Account" subtitle="Your entries sync to every device you sign in on.">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 14px', background: 'var(--panel)', border: 'var(--panel-border)', borderRadius: 14 }}>
+          <DisplayNameField value={displayName || ''} onChange={setDisplayName} accent={accent} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 14px', background: 'var(--panel)', border: 'var(--panel-border)', borderRadius: 14, marginTop: 12 }}>
             <div style={{ width: 38, height: 38, borderRadius: 999, background: accent, display: 'grid', placeItems: 'center', color: '#0a0a0c', flexShrink: 0 }}>
               <window.Icon name="cloud" size={18} />
             </div>
