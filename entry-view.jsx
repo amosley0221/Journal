@@ -214,10 +214,95 @@ function EntryView({ entry, accent, dark, onChangePhotos, onChangeStickies, onCh
                 <window.StickySlot sticky={s} />
               </window.FloatBox>
             ))}
+            {entry.strokes && entry.strokes.length > 0 && (
+              <StrokesLayer strokes={entry.strokes} />
+            )}
             </div>
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Read-only canvas that re-renders saved ink strokes ────────────
+// Strokes are stored with the canvas dimensions they were drawn on (`w`,`h`).
+// We scale uniformly to fit the current paper width, preserving aspect.
+function StrokesLayer({ strokes }) {
+  const wrapRef   = React.useRef(null);
+  const canvasRef = React.useRef(null);
+
+  // Compute the natural height needed at the current width so strokes don't
+  // get clipped on narrow viewports.
+  const target = (() => {
+    const recW = Math.max(...strokes.map((s) => s.w || 800), 800);
+    const recH = Math.max(...strokes.map((s) => s.h || 600), 200);
+    return { recW, recH };
+  })();
+
+  React.useEffect(() => {
+    const wrap = wrapRef.current;
+    const c    = canvasRef.current;
+    if (!wrap || !c) return;
+    function paint() {
+      const r = wrap.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      c.width  = Math.max(1, Math.floor(r.width * dpr));
+      c.height = Math.max(1, Math.floor(r.height * dpr));
+      const ctx = c.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, r.width, r.height);
+      strokes.forEach((s) => {
+        const sw    = s.w || target.recW;
+        const scale = r.width / sw;
+        const baseSize = s.size === 's' ? 1.6 : s.size === 'l' ? 5.0 : 2.8;
+        let lw, alpha, op, col;
+        switch (s.tool) {
+          case 'marker': lw = baseSize * 2.2; alpha = 0.95; op = 'source-over'; col = s.color; break;
+          case 'pencil': lw = Math.max(1, baseSize * 0.7); alpha = 0.75; op = 'source-over'; col = s.color; break;
+          case 'hi':     lw = baseSize * 6;   alpha = 0.35; op = 'source-over'; col = s.color; break;
+          case 'erase':  lw = baseSize * 6;   alpha = 1;    op = 'destination-out'; col = '#000'; break;
+          default:       lw = baseSize;       alpha = 1;    op = 'source-over'; col = s.color;
+        }
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.globalCompositeOperation = op;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = lw * scale;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath();
+        s.pts.forEach((p, i) => {
+          const x = p[0] * scale, y = p[1] * scale;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        ctx.restore();
+      });
+    }
+    paint();
+    const ro = new ResizeObserver(paint);
+    ro.observe(wrap);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [strokes]);
+
+  // Aspect-correct height for the wrapper, computed from recorded dims.
+  const aspect = target.recH / target.recW;
+
+  return (
+    <div
+      ref={wrapRef}
+      style={{
+        position: 'absolute', left: 0, right: 0, top: 0,
+        // Reserve space sized to recorded aspect so strokes never overflow.
+        paddingBottom: `${aspect * 100}%`,
+        pointerEvents: 'none',
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+      />
     </div>
   );
 }

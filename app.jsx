@@ -387,8 +387,13 @@ function JournalApp({ skin, layout = 'mobile', session }) {
         />
       )}
       {overlay === 'compose' && (
-        <ComposeOverlay close={() => setOverlay(null)} accent={accent} skin={skin}
-          sections={sections} currentPath={path[0] === 'home' ? null : path} />
+        <FullCompose
+          close={() => setOverlay(null)}
+          accent={accent} skin={skin} appTheme={appTheme}
+          sections={sections} setSections={setSections}
+          currentPath={path[0] === 'home' ? null : path}
+          layout={layout}
+        />
       )}
       {overlay === 'map' && (
         <window.MapOverlay
@@ -1333,85 +1338,445 @@ function AccentPicker({ accent, accentOverride, setAccentOverride, skin }) {
   );
 }
 
-// ─── Compose overlay ──────────────────────────────────────────────
-function ComposeOverlay({ close, accent, skin, sections, currentPath }) {
-  const [title, setTitle] = React.useState('');
-  const [body, setBody] = React.useState('');
-  const [theme, setTheme] = React.useState('dark');
-  const [withLocation, setWithLocation] = React.useState(false);
-  const [locationName, setLocationName] = React.useState('Sci. Bldg, Rm 214');
+// ─── Paper backgrounds (full sheet) ────────────────────────────────
+// Mirrors the renderer in entry-view.jsx so the compose surface and the
+// detail view show the same paper. Returns CSS values we apply directly.
+function paperBackground(theme) {
+  switch (theme) {
+    case 'notebook':
+      return {
+        bg: 'oklch(0.18 0.012 250)',
+        image: 'linear-gradient(to right, rgba(255,90,90,0.30) 0 1px, transparent 1px), repeating-linear-gradient(0deg, transparent 0 31px, rgba(160,200,255,0.22) 31px 32px)',
+        size: '100% 100%, 100% 32px',
+        position: '60px 0, 0 29px',
+        repeat: 'no-repeat, repeat',
+        fg: '#e9e6df', light: false,
+      };
+    case 'dotted':
+      return {
+        bg: 'oklch(0.16 0.010 250)',
+        image: 'radial-gradient(circle, rgba(255,255,255,0.16) 1px, transparent 1.4px)',
+        size: '18px 18px', repeat: 'repeat',
+        fg: '#e9e6df', light: false,
+      };
+    case 'grid':
+      return {
+        bg: 'oklch(0.16 0.010 250)',
+        image: 'linear-gradient(rgba(255,255,255,0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.07) 1px, transparent 1px)',
+        size: '24px 24px', repeat: 'repeat',
+        fg: '#e9e6df', light: false,
+      };
+    case 'handwritten':
+      return {
+        bg: 'oklch(0.18 0.012 250)',
+        image: 'radial-gradient(circle at 90% 92%, rgba(255,255,255,0.05), transparent 22%), radial-gradient(circle at 8% 12%, rgba(255,255,255,0.04), transparent 18%)',
+        size: '100% 100%', repeat: 'no-repeat',
+        fg: '#e9e6df', light: false,
+      };
+    case 'parchment':
+      return {
+        bg: 'oklch(0.92 0.04 78)',
+        image: 'radial-gradient(circle at 50% 50%, rgba(120,85,40,0.04) 0%, rgba(80,55,20,0.18) 100%)',
+        size: '100% 100%', repeat: 'no-repeat',
+        fg: '#2a2521', light: true,
+      };
+    case 'cream':
+      return { bg: 'oklch(0.96 0.012 78)', image: 'none', size: '100% 100%',
+               fg: '#2a2521', light: true };
+    default:
+      return { bg: 'oklch(0.16 0.010 250)', image: 'none', size: '100% 100%',
+               fg: '#e9e6df', light: false };
+  }
+}
 
-  // Build a label for the current section context (or default to the first section)
-  const sectionLabel = (() => {
-    if (!currentPath || !sections[0]) return 'Home';
-    let cur = null, parts = [];
-    let layer = sections;
-    for (const id of currentPath) {
-      cur = layer.find((n) => n.id === id);
-      if (!cur) break;
-      parts.push(cur.name);
-      layer = cur.children || [];
+// Pick a sensible leaf to drop a new entry into for a given section.
+function findDefaultLeaf(section) {
+  let cur = section;
+  while (cur.children && cur.children.length > 0) cur = cur.children[0];
+  return cur;
+}
+
+// ─── InkSurface — handwriting canvas with full pen palette ────────
+// Pens: pen, marker, pencil, highlight, eraser. 9 colors. 3 sizes.
+// Strokes are stored relative to a recorded canvas size so they reproduce
+// faithfully on viewing — see entry-view's StrokesLayer.
+function InkSurface({ strokes, setStrokes, accent, dark }) {
+  const canvasRef = React.useRef(null);
+  const wrapRef   = React.useRef(null);
+  const [tool, setTool]   = React.useState('pen');
+  const [color, setColor] = React.useState(dark ? '#e9e6df' : '#1a1a1c');
+  const [size, setSize]   = React.useState('m');
+  const drawing = React.useRef(null);
+
+  // Tool definitions — width baseline + visual modifier.
+  function strokeStyle(t, c, s) {
+    const baseSize = s === 's' ? 1.6 : s === 'l' ? 5.0 : 2.8;
+    switch (t) {
+      case 'marker':   return { color: c, lineWidth: baseSize * 2.2, alpha: 0.95, op: 'source-over' };
+      case 'pencil':   return { color: c, lineWidth: Math.max(1, baseSize * 0.7), alpha: 0.75, op: 'source-over' };
+      case 'hi':       return { color: c, lineWidth: baseSize * 6, alpha: 0.35, op: 'source-over' };
+      case 'erase':    return { color: '#000', lineWidth: baseSize * 6, alpha: 1, op: 'destination-out' };
+      case 'pen':
+      default:         return { color: c, lineWidth: baseSize, alpha: 1, op: 'source-over' };
     }
-    return parts.slice(0, 3).join(' · ') || 'Home';
-  })();
+  }
+
+  const redraw = React.useCallback(() => {
+    const c = canvasRef.current; if (!c) return;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, c.width, c.height);
+    const all = strokes.slice();
+    if (drawing.current) all.push(drawing.current);
+    all.forEach((s) => {
+      const st = strokeStyle(s.tool, s.color, s.size);
+      ctx.save();
+      ctx.globalAlpha = st.alpha;
+      ctx.globalCompositeOperation = st.op;
+      ctx.strokeStyle = st.color;
+      ctx.lineWidth = st.lineWidth;
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      s.pts.forEach((p, i) => i === 0 ? ctx.moveTo(p[0], p[1]) : ctx.lineTo(p[0], p[1]));
+      ctx.stroke();
+      ctx.restore();
+    });
+  }, [strokes]);
+
+  React.useEffect(() => { redraw(); }, [redraw]);
+  React.useEffect(() => {
+    const c = canvasRef.current; if (!c) return;
+    const fit = () => {
+      const r = c.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      c.width  = Math.max(1, Math.floor(r.width * dpr));
+      c.height = Math.max(1, Math.floor(r.height * dpr));
+      const ctx = c.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      redraw();
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(c);
+    return () => ro.disconnect();
+  }, [redraw]);
+
+  const ptFromEvent = (e) => {
+    const r = canvasRef.current.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  };
+  const start = (e) => {
+    e.preventDefault();
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const pt = ptFromEvent(e);
+    drawing.current = { tool, color, size, pts: [pt] };
+    try { canvasRef.current.setPointerCapture(e.pointerId); } catch {}
+    redraw();
+  };
+  const move = (e) => {
+    if (!drawing.current) return;
+    drawing.current.pts.push(ptFromEvent(e));
+    redraw();
+  };
+  const end = (e) => {
+    if (!drawing.current) return;
+    // Skip 1-point taps to avoid stray dots.
+    if (drawing.current.pts.length > 1) {
+      const r = canvasRef.current.getBoundingClientRect();
+      const recorded = { ...drawing.current, w: r.width, h: r.height };
+      setStrokes((arr) => [...arr, recorded]);
+    }
+    drawing.current = null;
+    try { canvasRef.current.releasePointerCapture(e.pointerId); } catch {}
+  };
+
+  const undo = () => setStrokes((arr) => arr.slice(0, -1));
+  const clear = () => { if (strokes.length && confirm('Clear all ink?')) setStrokes([]); };
+
+  // Color palette — readable on both paper tones.
+  const palette = dark
+    ? ['#e9e6df', '#ff7878', '#ffb058', '#ffd479', '#7be39c', '#7adfd9', '#8ec5ff', '#c7a3ff', '#ff9fd6']
+    : ['#1a1a1c', '#c8302a', '#b8651a', '#a17a14', '#1f7a44', '#1c7a78', '#244a96', '#5a3aa8', '#a83368'];
+
+  const tools = [
+    { id: 'pen',    icon: 'pen',       label: 'Pen' },
+    { id: 'marker', icon: 'pen',       label: 'Marker' },
+    { id: 'pencil', icon: 'pen',       label: 'Pencil' },
+    { id: 'hi',     icon: 'highlight', label: 'Highlight' },
+    { id: 'erase',  icon: 'eraser',    label: 'Erase' },
+  ];
+  const sizes = [
+    { id: 's', label: 'Fine',   dot: 4 },
+    { id: 'm', label: 'Medium', dot: 7 },
+    { id: 'l', label: 'Bold',   dot: 11 },
+  ];
 
   return (
-    <Overlay close={close} title="New entry" accent={accent} skin={skin}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
-        <span className="chip chip-accent"><window.Icon name="layers" size={12} />{sectionLabel}</span>
-        <span className="chip chip-neutral"><window.Icon name="cloud" size={12} />72° clear</span>
-        <button
-          onClick={() => setWithLocation(!withLocation)}
-          className={`chip ${withLocation ? 'chip-accent' : 'chip-neutral'}`}
-          style={{ border: withLocation ? `1px solid ${accent}` : undefined, cursor: 'pointer' }}
-        >
-          <window.Icon name="map" size={12} />
-          {withLocation ? locationName : 'Tag location (optional)'}
-          {withLocation && <window.Icon name="x" size={11} style={{ opacity: 0.7, marginLeft: 4 }} />}
-        </button>
-      </div>
-      <input
-        value={title} onChange={(e) => setTitle(e.target.value)}
-        placeholder="Title…"
-        style={{ background: 'transparent', border: 'none', outline: 'none', color: 'currentColor', fontSize: 26, fontWeight: 600, letterSpacing: '-0.015em', padding: '6px 0', width: '100%', fontFamily: 'inherit', marginBottom: 6 }}
+    <div ref={wrapRef} className="ink-surface">
+      <canvas
+        ref={canvasRef}
+        onPointerDown={start}
+        onPointerMove={move}
+        onPointerUp={end}
+        onPointerCancel={end}
+        style={{ width: '100%', height: '100%', touchAction: 'none', cursor: 'crosshair', display: 'block' }}
       />
-      <textarea
-        value={body} onChange={(e) => setBody(e.target.value)}
-        placeholder="Start writing — or tap the pencil to handwrite…"
-        rows={6}
-        style={{ background: 'transparent', border: 'none', outline: 'none', resize: 'none', color: 'currentColor', fontSize: 15, lineHeight: 1.6, padding: 0, width: '100%', fontFamily: 'inherit' }}
-      />
-      <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--hairline)' }}>
-        <div style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', opacity: 0.55, marginBottom: 10 }}>Paper theme</div>
-        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-          {window.THEMES.map((t) => (
-            <button key={t.id}
-              onClick={() => setTheme(t.id)}
-              className={`compose-theme ${theme === t.id ? 'compose-theme-active' : ''}`}
-              title={t.name}>
-              <span style={{ width: 24, height: 18, borderRadius: 4, flexShrink: 0,
-                background: themeSwatchBg(t.id),
-                backgroundImage: themeSwatchImg(t.id),
-                backgroundSize: themeSwatchSize(t.id),
-                border: '1px solid rgba(255,255,255,0.10)',
-              }} />
-              {t.name}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
-        {['pen', 'image', 'sticky', 'mic', 'smile', 'lock'].map((i) => (
-          <button key={i} className="icon-btn glass" style={{ width: 38, height: 38 }}>
-            <window.Icon name={i} size={16} />
+      <div className={`ink-bar ${dark ? '' : 'ink-bar-light'}`}>
+        {tools.map((t) => (
+          <button key={t.id} onClick={() => setTool(t.id)} title={t.label}
+            className={`ink-tool ${tool === t.id ? 'is-active' : ''}`}
+            style={tool === t.id ? { background: accent, color: '#0a0a0c' } : undefined}>
+            <window.Icon name={t.icon} size={15} />
+            <span className="ink-tool-label">{t.label.charAt(0)}</span>
           </button>
         ))}
+        <span className="ink-bar-sep" />
+        {sizes.map((sz) => (
+          <button key={sz.id} onClick={() => setSize(sz.id)} title={sz.label}
+            className={`ink-size ${size === sz.id ? 'is-active' : ''}`}>
+            <span className="ink-size-dot" style={{ width: sz.dot, height: sz.dot, background: tool === 'erase' ? 'currentColor' : color }} />
+          </button>
+        ))}
+        <span className="ink-bar-sep" />
+        <span className="ink-colors">
+          {palette.map((c) => (
+            <button key={c} onClick={() => setColor(c)} aria-label={c}
+              className={`ink-color ${color === c ? 'is-active' : ''}`}
+              style={{ background: c, borderColor: color === c ? accent : undefined }}
+            />
+          ))}
+        </span>
+        <span className="ink-bar-sep" />
+        <button onClick={undo} disabled={!strokes.length} className="ink-action">Undo</button>
+        <button onClick={clear} disabled={!strokes.length} className="ink-action">Clear</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Full-screen compose ──────────────────────────────────────────
+// Replaces the half-sheet. Fills the viewport, renders the chosen paper
+// theme as the actual writing surface, and lets the user type OR
+// hand-write/draw.
+function FullCompose({ close, accent, skin, appTheme, sections, setSections, currentPath, layout }) {
+  // Reasonable default: notebook ruled paper.
+  const [paper, setPaper]   = React.useState('notebook');
+  const [mode, setMode]     = React.useState('type'); // 'type' | 'write'
+  const [title, setTitle]   = React.useState('');
+  const [body, setBody]     = React.useState('');
+  const [strokes, setStrokes] = React.useState([]);
+  const [paperOpen, setPaperOpen] = React.useState(false);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+
+  // Section picker: defaults to the section the user is currently inside, or
+  // the first section. If none exist, save is blocked.
+  const initialSectionId = (currentPath && currentPath[0]) || (sections[0] && sections[0].id) || null;
+  const [sectionId, setSectionId] = React.useState(initialSectionId);
+  const noSections = sections.length === 0;
+
+  const bg = paperBackground(paper);
+  const isLight = bg.light;
+  const themeBodyFont = ['notebook', 'handwritten'].includes(paper)
+    ? '"Caveat", "Inter Tight", sans-serif'
+    : 'inherit';
+  const bodySize = paper === 'notebook' ? 22 : paper === 'handwritten' ? 22 : 15;
+  const bodyLh   = paper === 'notebook' ? '32px' : paper === 'handwritten' ? '32px' : 1.6;
+
+  function save() {
+    const hasContent = title.trim() || body.trim() || strokes.length > 0;
+    if (!hasContent) { close(); return; }
+    if (!sectionId) { close(); return; }
+
+    const now = new Date();
+    const id = 'e-' + now.getTime().toString(36);
+    const date = now.toISOString().slice(0, 10);
+    const dow  = now.toLocaleDateString('en-US', { weekday: 'short' });
+    const time = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const preview = (body.trim() || title.trim() || (strokes.length ? '✎ Handwritten note' : '')).slice(0, 160);
+    const newEntry = {
+      id,
+      title: title.trim() || 'Untitled',
+      date, dow, time,
+      mood: '', weather: '',
+      location: null,
+      theme: paper,
+      preview,
+      body: body.trim() ? [{ type: 'p', text: body.trim() }] : [],
+      strokes: strokes.length ? strokes : undefined,
+      stickies: [], photos: [], voice: [], backlinks: [],
+    };
+
+    setSections((s) => {
+      const next = JSON.parse(JSON.stringify(s));
+      const root = next.find((n) => n.id === sectionId);
+      if (!root) return s;
+      const leaf = findDefaultLeaf(root);
+      leaf.entries = leaf.entries || [];
+      leaf.entries.unshift(newEntry);
+      return next;
+    });
+    close();
+  }
+
+  function discard() {
+    const dirty = title.trim() || body.trim() || strokes.length > 0;
+    if (dirty && !confirm('Discard this entry?')) return;
+    close();
+  }
+
+  return (
+    <div className={`compose-full ${isLight ? 'compose-full-light' : ''}`} role="dialog" aria-label="New entry">
+      <div
+        className="compose-paper"
+        style={{
+          background: bg.bg,
+          backgroundImage: bg.image,
+          backgroundSize: bg.size,
+          backgroundPosition: bg.position || '0 0',
+          backgroundRepeat: bg.repeat || 'repeat',
+          color: bg.fg,
+        }}
+      >
+        {/* Title — sits on the paper itself, no chrome */}
+        <div className="compose-title-wrap" style={{ paddingLeft: paper === 'notebook' ? 78 : 44, paddingRight: 44 }}>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Title…"
+            className="compose-title"
+            style={{
+              fontFamily: themeBodyFont !== 'inherit' ? themeBodyFont : 'inherit',
+              color: bg.fg,
+            }}
+          />
+        </div>
+
+        {/* Body area — type OR handwrite/draw */}
+        <div
+          className="compose-body"
+          style={{ paddingLeft: paper === 'notebook' ? 78 : 44, paddingRight: 44 }}
+        >
+          {mode === 'type' ? (
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder={paper === 'notebook' ? 'Write here on the lines…' : 'Start writing…'}
+              className="compose-textarea"
+              style={{
+                fontFamily: themeBodyFont,
+                fontSize: bodySize,
+                lineHeight: bodyLh,
+                color: bg.fg,
+              }}
+            />
+          ) : (
+            <InkSurface
+              strokes={strokes}
+              setStrokes={setStrokes}
+              accent={accent}
+              dark={!isLight}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Top toolbar — minimal so the paper stays the focus */}
+      <div className={`compose-bar ${isLight ? 'compose-bar-light' : ''}`}>
+        <button onClick={discard} className="compose-bar-btn" title="Close" aria-label="Close">
+          <window.Icon name="x" size={18} />
+        </button>
+
+        {sections.length > 0 && (
+          <div className="compose-bar-section" style={{ position: 'relative' }}>
+            <button onClick={() => setPickerOpen((o) => !o)} className="compose-pill" title="Section">
+              <window.Icon name="layers" size={13} />
+              <span>{(sections.find((s) => s.id === sectionId) || {}).name || 'Pick section'}</span>
+              <window.Icon name="chevron" size={11} style={{ transform: 'rotate(90deg)', opacity: 0.65 }} />
+            </button>
+            {pickerOpen && (
+              <div className="compose-dropdown">
+                {sections.map((s) => (
+                  <button key={s.id} onClick={() => { setSectionId(s.id); setPickerOpen(false); }}
+                    className={`compose-dropdown-item ${sectionId === s.id ? 'is-active' : ''}`}>
+                    <span style={{ width: 22, textAlign: 'center' }}>{s.glyph}</span>
+                    <span style={{ flex: 1 }}>{s.name}</span>
+                    {sectionId === s.id && <window.Icon name="check" size={12} />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <div style={{ flex: 1 }} />
-        <button className="primary-btn" style={{ background: accent }}>
-          <window.Icon name="check" size={15} />Save
+
+        {/* Type ⇄ Write mode toggle */}
+        <div className="compose-mode-seg" role="tablist">
+          <button onClick={() => setMode('type')}
+            className={`compose-mode-btn ${mode === 'type' ? 'is-active' : ''}`}
+            style={mode === 'type' ? { background: accent, color: '#0a0a0c' } : undefined}>
+            <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>Aa</span>
+            <span className="compose-mode-label">Type</span>
+          </button>
+          <button onClick={() => setMode('write')}
+            className={`compose-mode-btn ${mode === 'write' ? 'is-active' : ''}`}
+            style={mode === 'write' ? { background: accent, color: '#0a0a0c' } : undefined}>
+            <window.Icon name="pen" size={13} />
+            <span className="compose-mode-label">Draw</span>
+          </button>
+        </div>
+
+        {/* Paper picker dropdown */}
+        <div className="compose-bar-section" style={{ position: 'relative' }}>
+          <button onClick={() => setPaperOpen((o) => !o)} className="compose-pill" title="Paper">
+            <span style={{
+              width: 22, height: 16, borderRadius: 4, flexShrink: 0,
+              background: themeSwatchBg(paper),
+              backgroundImage: themeSwatchImg(paper),
+              backgroundSize: themeSwatchSize(paper),
+              border: '1px solid rgba(255,255,255,0.10)',
+              display: 'inline-block',
+            }} />
+            <span>Paper</span>
+            <window.Icon name="chevron" size={11} style={{ transform: 'rotate(90deg)', opacity: 0.65 }} />
+          </button>
+          {paperOpen && (
+            <div className="compose-dropdown compose-dropdown-right">
+              {window.THEMES.map((t) => (
+                <button key={t.id} onClick={() => { setPaper(t.id); setPaperOpen(false); }}
+                  className={`compose-dropdown-item ${paper === t.id ? 'is-active' : ''}`}>
+                  <span style={{
+                    width: 28, height: 20, borderRadius: 4, flexShrink: 0,
+                    background: themeSwatchBg(t.id),
+                    backgroundImage: themeSwatchImg(t.id),
+                    backgroundSize: themeSwatchSize(t.id),
+                    border: '1px solid rgba(255,255,255,0.10)',
+                  }} />
+                  <span style={{ flex: 1 }}>{t.name}</span>
+                  {paper === t.id && <window.Icon name="check" size={12} />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={save}
+          disabled={noSections}
+          className="compose-save"
+          style={{ background: accent }}
+          title={noSections ? 'Create a section first' : 'Save'}
+        >
+          <window.Icon name="check" size={15} />
+          <span className="compose-mode-label">Save</span>
         </button>
       </div>
-    </Overlay>
+
+      {noSections && (
+        <div className="compose-empty-hint">
+          You don’t have any sections yet. Open Settings → Sections to add one, then come back to save.
+        </div>
+      )}
+    </div>
   );
 }
 
