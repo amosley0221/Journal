@@ -59,19 +59,28 @@ function allEntries(sections) {
   return out;
 }
 
-function JournalApp({ skin, layout = 'mobile' }) {
-  const [sections, setSections] = useState(() => window.INITIAL_SECTIONS.map(deepClone));
-  // path: ['home'] for home, or [sectionId, childId?, grandchildId?]
-  const [path, setPath] = useState(['home']);
+function JournalApp({ skin, layout = 'mobile', session }) {
+  // Synced state — comes from Supabase via useSyncedJournal. Each setter mirrors
+  // useState's API so the rest of the component is unchanged.
+  const sync = window.useSyncedJournal(session);
+  const sections = sync.data.sections;
+  const setSections = sync.setSections;
+  const appTheme = sync.data.appTheme;
+  const setAppTheme = sync.setAppTheme;
+  const accentOverride = sync.data.accentOverride;
+  const setAccentOverride = sync.setAccentOverride;
+  const photoState = sync.data.photoState;
+  const setPhotoState = sync.setPhotoState;
+  const stickyState = sync.data.stickyState;
+  const setStickyState = sync.setStickyState;
+  const themeState = sync.data.themeState;
+  const setThemeState = sync.setThemeState;
+
+  // Local-only UI state (intentionally per-device, not synced)
+  const [path, setPath] = useState(['home']);  // ['home'] or [sectionId, childId?, ...]
   const [entryId, setEntryId] = useState(null);
   const [overlay, setOverlay] = useState(null);
   const [unlocked, setUnlocked] = useState({});
-  const [appTheme, setAppTheme] = useState('dark');
-  const [accentOverride, setAccentOverride] = useState(null);
-
-  const [photoState, setPhotoState] = useState({});
-  const [stickyState, setStickyState] = useState({});
-  const [themeState, setThemeState] = useState({});
   const [phoneShow, setPhoneShow] = useState('rail');
 
   const accent = (accentOverride && accentOverride.accent) || skin.accent;
@@ -180,6 +189,28 @@ function JournalApp({ skin, layout = 'mobile' }) {
     },
   };
 
+  if (!sync.loaded) {
+    return (
+      <div
+        className={`app skin-${skin.id} app-${appTheme} layout-${layout}`}
+        style={{
+          position: 'relative', width: '100%', height: '100%', overflow: 'hidden',
+          color: '#e9e6df',
+          '--accent': accent, '--accent-soft': accentSoft,
+          fontFamily: '"Inter Tight", "Inter", system-ui, sans-serif',
+          display: 'grid', placeItems: 'center',
+        }}
+      >
+        <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
+          {React.createElement(skin.background, { theme: appTheme })}
+        </div>
+        <div style={{ position: 'relative', zIndex: 1, opacity: 0.7, fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase' }}>
+          Syncing…
+        </div>
+      </div>
+    );
+  }
+
   const body = (
     <BodyRouter
       path={path} sections={sections} drillTo={drillTo} stepUp={stepUp}
@@ -266,6 +297,7 @@ function JournalApp({ skin, layout = 'mobile' }) {
           appTheme={appTheme} setAppTheme={setAppTheme}
           sections={sections} setSections={setSections}
           accentOverride={accentOverride} setAccentOverride={setAccentOverride}
+          session={session} syncStatus={sync.syncStatus}
         />
       )}
       {overlay === 'compose' && (
@@ -905,7 +937,7 @@ function countEntries(node) {
 }
 
 // ─── Settings overlay ──────────────────────────────────────────────
-function SettingsOverlay({ close, appTheme, setAppTheme, accent, skin, sections, setSections, accentOverride, setAccentOverride }) {
+function SettingsOverlay({ close, appTheme, setAppTheme, accent, skin, sections, setSections, accentOverride, setAccentOverride, session, syncStatus }) {
   const [pwTab, setPwTab] = React.useState('keypad');
   const [tab, setTab] = React.useState('sections');
   return (
@@ -917,6 +949,7 @@ function SettingsOverlay({ close, appTheme, setAppTheme, accent, skin, sections,
           { id: 'appearance', label: 'Appearance', icon: 'sun' },
           { id: 'security', label: 'Security', icon: 'lock' },
           { id: 'pencil', label: 'Pencil', icon: 'pen' },
+          { id: 'account', label: 'Account', icon: 'cloud' },
         ].map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className={`seg-btn ${tab === t.id ? 'seg-btn-active' : ''}`}>
             <window.Icon name={t.icon} size={14} />{t.label}
@@ -977,6 +1010,38 @@ function SettingsOverlay({ close, appTheme, setAppTheme, accent, skin, sections,
             {pwTab === 'pattern' && <PatternPreview accent={accent} />}
             {pwTab === 'pass' && <PassphrasePreview accent={accent} />}
             {pwTab === 'bio' && <BiometricPreview accent={accent} />}
+          </div>
+        </SettingsSection>
+      )}
+
+      {tab === 'account' && (
+        <SettingsSection title="Account" subtitle="Your entries sync to every device you sign in on.">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 14px', background: 'var(--panel)', border: 'var(--panel-border)', borderRadius: 14 }}>
+            <div style={{ width: 38, height: 38, borderRadius: 999, background: accent, display: 'grid', placeItems: 'center', color: '#0a0a0c', flexShrink: 0 }}>
+              <window.Icon name="cloud" size={18} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {session && session.user ? session.user.email : 'Signed out'}
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.65, fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.06em', marginTop: 2 }}>
+                {syncStatus === 'idle' && 'Synced'}
+                {syncStatus === 'saving' && 'Saving…'}
+                {syncStatus === 'loading' && 'Loading…'}
+                {syncStatus === 'error' && 'Sync error'}
+                {syncStatus === 'offline' && 'Offline'}
+              </div>
+            </div>
+            <button
+              onClick={() => window.signOut()}
+              style={{
+                padding: '8px 14px', borderRadius: 999,
+                background: 'transparent', border: '1px solid var(--hairline)',
+                color: 'inherit', fontSize: 12.5, cursor: 'pointer',
+              }}
+            >
+              Sign out
+            </button>
           </div>
         </SettingsSection>
       )}

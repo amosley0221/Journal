@@ -2,8 +2,21 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Journal+ — variations</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Journal+</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0a0a0c">
+<meta name="application-name" content="Journal+">
+<meta name="mobile-web-app-capable" content="yes">
+<!-- iOS PWA -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Journal+">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Caveat:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -791,66 +804,194 @@
   }
   .map-legend-label { font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; opacity: 0.55; margin-bottom: 8px; }
 
-  /* Canvas wrapper */
-  body { min-height: 100vh; }
-  .canvas-host { width: 100vw; height: 100vh; }
+  /* App fills the viewport (and respects iOS safe-area insets when installed) */
+  html, body, #root { height: 100%; }
+  body {
+    min-height: 100vh;
+    /* Use 100dvh where supported so iOS PWA toolbars don't clip the FAB */
+    min-height: 100dvh;
+    overscroll-behavior: none;
+  }
+  .app-host {
+    width: 100%; height: 100%;
+    position: relative; background: #06060a; overflow: hidden;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  .app-light .app-host { background: #f6f4ee; }
 
-  /* Inside the artboard, the app fills */
-  .artboard-app { width: 100%; height: 100%; position: relative; background: #06060a; overflow: hidden; }
-  .app-light .artboard-app { background: #f6f4ee; }
+  /* ─── Auth screen ─── */
+  .auth-root {
+    position: relative; width: 100%; height: 100%;
+    min-height: 100dvh;
+    background: #06060a;
+    color: #e9e6df;
+    display: grid; place-items: center;
+    padding: 24px;
+    overflow: hidden;
+  }
+  .auth-card {
+    position: relative; z-index: 1;
+    width: 100%; max-width: 420px;
+    padding: 32px 28px;
+    background: rgba(20,21,24,0.65);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 22px;
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,0.6);
+    --accent: oklch(0.82 0.16 75);
+    --accent-soft: oklch(0.82 0.16 75 / 0.20);
+  }
+  .auth-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+  .auth-wordmark { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
+  .auth-title { margin: 0 0 6px; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+  .auth-sub { margin: 0 0 22px; font-size: 13.5px; opacity: 0.65; line-height: 1.5; }
+  .auth-form { display: flex; flex-direction: column; gap: 14px; }
+  .auth-field { display: flex; flex-direction: column; gap: 6px; }
+  .auth-field > span {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase;
+    opacity: 0.6;
+  }
+  .auth-field input {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.10);
+    color: inherit; font: inherit; font-size: 14px;
+    outline: none;
+    transition: border-color 0.14s, background 0.14s;
+  }
+  .auth-field input:focus {
+    border-color: var(--accent);
+    background: rgba(255,255,255,0.06);
+  }
+  .auth-error {
+    padding: 10px 12px; border-radius: 10px;
+    background: oklch(0.30 0.12 25 / 0.20);
+    border: 1px solid oklch(0.55 0.18 25 / 0.40);
+    color: oklch(0.85 0.14 25);
+    font-size: 12.5px;
+  }
+  .auth-notice {
+    padding: 10px 12px; border-radius: 10px;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-size: 12.5px;
+  }
+  .auth-submit {
+    margin-top: 4px;
+    padding: 13px 18px;
+    border-radius: 999px;
+    border: none;
+    background: var(--accent); color: #0a0a0c;
+    font: inherit; font-weight: 600; font-size: 14px; letter-spacing: -0.005em;
+    cursor: pointer;
+    transition: transform 0.12s, opacity 0.14s;
+  }
+  .auth-submit:hover { opacity: 0.92; }
+  .auth-submit:active { transform: scale(0.98); }
+  .auth-submit:disabled { opacity: 0.5; cursor: default; }
+  .auth-switch {
+    margin-top: 20px;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    font-size: 12.5px; opacity: 0.75;
+  }
+  .auth-link {
+    background: transparent; border: none; padding: 0;
+    color: inherit; font: inherit; cursor: pointer;
+    text-decoration: underline; text-decoration-color: rgba(255,255,255,0.20);
+    text-underline-offset: 3px;
+  }
+  .auth-link:hover { text-decoration-color: var(--accent); color: var(--accent); }
+  .auth-dot { opacity: 0.4; }
 </style>
 </head>
 <body>
-  <div id="root" class="canvas-host"></div>
+  <div id="root"></div>
 
-  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <!-- Runtime config (Supabase URL/key) — fill in before deploying. -->
+  <script src="config.js"></script>
 
-  <script type="text/babel" data-presets="react" src="design-canvas.jsx"></script>
+  <!-- React + Babel (runtime JSX transform; fine for a prototype-scale app) -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+  <!-- Supabase JS (UMD) -->
+  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin="anonymous"></script>
+
+  <!-- App modules. Order matters: data → sync → auth → skins → views → app → bootstrap. -->
   <script type="text/babel" data-presets="react" src="data.jsx"></script>
+  <script type="text/babel" data-presets="react" src="sync.jsx"></script>
+  <script type="text/babel" data-presets="react" src="auth.jsx"></script>
+  <script type="text/babel" data-presets="react" src="skins.jsx"></script>
   <script type="text/babel" data-presets="react" src="entry-canvas.jsx"></script>
   <script type="text/babel" data-presets="react" src="entry-view.jsx"></script>
   <script type="text/babel" data-presets="react" src="map-overlay.jsx"></script>
-  <script type="text/babel" data-presets="react" src="skins.jsx"></script>
   <script type="text/babel" data-presets="react" src="app.jsx"></script>
 
   <script type="text/babel" data-presets="react">
     (() => {
-    const { DesignCanvas, DCSection, DCArtboard, SKINS, JournalApp } = window;
+      const { SKINS, JournalApp, AuthScreen, useAuth } = window;
 
-    function Artboard({ skinId, layout }) {
-      const skin = SKINS[skinId];
-      return (
-        <div className="artboard-app">
-          <JournalApp skin={skin} layout={layout} />
-        </div>
-      );
-    }
+      // Responsive layout picker: keeps the design's three modes — phone, tablet
+      // (mobile), desktop — but selects automatically from the viewport.
+      function useLayout() {
+        const get = () => {
+          const w = window.innerWidth;
+          if (w >= 1100) return 'desktop';
+          if (w >= 680)  return 'mobile';   // tablet
+          return 'phone';
+        };
+        const [layout, setLayout] = React.useState(get);
+        React.useEffect(() => {
+          const onResize = () => setLayout(get());
+          window.addEventListener('resize', onResize);
+          return () => window.removeEventListener('resize', onResize);
+        }, []);
+        return layout;
+      }
 
-    function Page() {
-      return (
-        <DesignCanvas title="Journal+" subtitle="Glass-dark journal — tablet + desktop · home defaults · slider pill nav">
-          <DCSection id="phone" title="iPhone 16 Pro Max · portrait" subtitle="Single-pane split — tap an entry, the detail slides in.">
-            <DCArtboard id="restrained-phone" label="iPhone · 430 × 932" width={430} height={932}>
-              <Artboard skinId="restrained" layout="phone" />
-            </DCArtboard>
-          </DCSection>
-          <DCSection id="tablet" title="Tablet · portrait" subtitle="Apple-glass slider — drag to swipe between journals.">
-            <DCArtboard id="restrained-tablet" label="Tablet · 880 × 1240" width={880} height={1240}>
-              <Artboard skinId="restrained" layout="mobile" />
-            </DCArtboard>
-          </DCSection>
-          <DCSection id="desktop" title="Desktop · landscape" subtitle="Glass slider centered in the top bar — same nav, more room.">
-            <DCArtboard id="restrained-desktop" label="Desktop · 1440 × 900" width={1440} height={900}>
-              <Artboard skinId="restrained" layout="desktop" />
-            </DCArtboard>
-          </DCSection>
-        </DesignCanvas>
-      );
-    }
+      function App() {
+        const { session, ready, configured } = useAuth();
+        const layout = useLayout();
+        const skin = SKINS.restrained;
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<Page />);
+        if (!ready) {
+          return (
+            <div className="auth-root">
+              <div style={{ opacity: 0.5, fontFamily: 'JetBrains Mono, monospace', fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase' }}>
+                Loading…
+              </div>
+            </div>
+          );
+        }
+        if (!configured || !session) {
+          return <AuthScreen />;
+        }
+        return (
+          <div className="app-host">
+            <JournalApp skin={skin} layout={layout} session={session} />
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+
+      // Register the service worker (skip when running off file://)
+      if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('sw.js').catch((err) => {
+            console.warn('[sw] registration failed', err);
+          });
+        });
+      }
     })();
   </script>
 </body>

@@ -1,0 +1,33 @@
+-- ─── Journal+ schema ──────────────────────────────────────────────
+-- Run this in your Supabase project's SQL editor once. It creates a single
+-- per-user JSONB row that holds the entire journal (sections tree, theme
+-- preferences, etc.) and locks it down with row-level security so users can
+-- only see their own data.
+
+create table if not exists public.user_data (
+  user_id    uuid        primary key references auth.users(id) on delete cascade,
+  data       jsonb       not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+-- Row-level security: a user can only read/write their own row.
+alter table public.user_data enable row level security;
+
+drop policy if exists "user_data: select own" on public.user_data;
+create policy "user_data: select own"
+  on public.user_data for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "user_data: insert own" on public.user_data;
+create policy "user_data: insert own"
+  on public.user_data for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "user_data: update own" on public.user_data;
+create policy "user_data: update own"
+  on public.user_data for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- Enable realtime so other devices see changes immediately.
+alter publication supabase_realtime add table public.user_data;
