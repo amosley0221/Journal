@@ -1044,51 +1044,35 @@
     opacity: 0.5; text-align: center;
   }
 
-  /* ─── Slider (Apple-glass capsule, glossy) ─── */
-  .slider-wrap { padding: 8px 22px 6px; display: flex; justify-content: center; }
+  /* ─── Slider (glass rail + bright accent-glow active pill) ─── */
+  /* The rail is intentionally faint — just a thin glass outline — so the
+     active pill reads as a glowing, glossy capsule sitting on top of it.
+     The 8px padding gives the active pill's outer halo room to live
+     INSIDE the rail (it would otherwise be clipped by the overflow:auto
+     needed for horizontal scrolling). */
+  .slider-wrap { padding: 12px 22px 10px; display: flex; justify-content: center; }
   .slider {
     position: relative;
-    display: inline-flex; gap: 3px; padding: 4px;
+    display: inline-flex; gap: 3px; padding: 8px;
     border-radius: 999px;
-    background:
-      linear-gradient(180deg, rgba(255,255,255,0.13) 0%, rgba(255,255,255,0.02) 38%, rgba(255,255,255,0.00) 60%, rgba(255,255,255,0.05) 100%),
-      rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.10);
-    backdrop-filter: blur(40px) saturate(180%);
-    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.14);
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.22),
-      inset 0 0 0 1px rgba(255,255,255,0.04),
-      inset 0 -1px 0 rgba(0,0,0,0.25),
-      0 12px 32px -14px rgba(0,0,0,0.6);
+      inset 0 1px 0 rgba(255,255,255,0.07),
+      0 6px 16px -6px rgba(0,0,0,0.4);
     max-width: 100%;
     overflow-x: auto; scrollbar-width: none;
     scroll-snap-type: x proximity;
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
   }
-  .slider::before {
-    /* specular highlight — thin glossy band along the top */
-    content: '';
-    position: absolute;
-    left: 14px; right: 14px; top: 2px; height: 1px;
-    border-radius: 999px;
-    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.55) 50%, transparent 100%);
-    pointer-events: none;
-  }
   .slider::-webkit-scrollbar { display: none; }
   .app-light .slider {
-    background:
-      linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.55) 50%, rgba(255,255,255,0.40) 100%),
-      rgba(255,255,255,0.40);
-    border-color: rgba(0,0,0,0.08);
+    background: rgba(255,255,255,0.40);
+    border-color: rgba(0,0,0,0.10);
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.85),
-      inset 0 -1px 0 rgba(0,0,0,0.06),
-      0 12px 32px -14px rgba(0,0,0,0.18);
-  }
-  .app-light .slider::before {
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent);
+      inset 0 1px 0 rgba(255,255,255,0.6),
+      0 6px 16px -6px rgba(0,0,0,0.18);
   }
   .slider-item {
     display: inline-flex; align-items: center; gap: 7px;
@@ -1097,44 +1081,63 @@
     color: rgba(255,255,255,0.60);
     font-size: 13.5px; font-weight: 500; letter-spacing: -0.005em;
     cursor: pointer; white-space: nowrap;
-    transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
     scroll-snap-align: center;
     position: relative;
   }
   .slider-item:hover { color: rgba(255,255,255,0.85); }
   .app-light .slider-item { color: rgba(0,0,0,0.50); }
   .app-light .slider-item:hover { color: rgba(0,0,0,0.85); }
+
+  /* Active pill: vivid accent, glossy top shine, dark ink for contrast,
+     and a soft outer halo that fades into the rail's padding. Halo blur
+     is intentionally sized to fit the 8px rail padding so it isn't
+     clipped horizontally and only mildly clipped vertically. */
   .slider-item-active {
     background:
-      linear-gradient(180deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.10) 50%, rgba(255,255,255,0.18) 100%);
-    border-color: rgba(255,255,255,0.18);
-    color: #fff;
+      linear-gradient(180deg,
+        color-mix(in oklch, var(--accent) 70%, white) 0%,
+        var(--accent) 55%,
+        color-mix(in oklch, var(--accent) 80%, black) 100%);
+    border-color: color-mix(in oklch, var(--accent) 70%, black);
+    color: #0a0a0c;
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.45),
-      inset 0 0 0 1px rgba(255,255,255,0.06),
-      inset 0 -1px 0 rgba(0,0,0,0.18),
-      0 4px 12px -2px rgba(0,0,0,0.5);
+      /* glossy top highlight */
+      inset 0 1px 0 rgba(255,255,255,0.85),
+      /* shadowed bottom for depth */
+      inset 0 -1px 0 rgba(0,0,0,0.25),
+      /* tight outer halo (fits inside the rail's 8px padding) */
+      0 0 6px 1px var(--accent),
+      0 0 14px 2px var(--accent-soft);
+    z-index: 1;
+  }
+  /* Fallback when color-mix isn't supported (older browsers) */
+  @supports not (color: color-mix(in oklch, red, blue)) {
+    .slider-item-active {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
   }
   .slider-item-active::before {
-    /* small inner gloss highlight on active pill */
+    /* Thin specular streak along the top, like a glass cap */
     content: '';
     position: absolute;
-    left: 8px; right: 8px; top: 1px; height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.7), transparent);
+    left: 10px; right: 10px; top: 2px; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent);
     border-radius: 999px;
     pointer-events: none;
+    filter: blur(0.5px);
   }
   .app-light .slider-item-active {
-    background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(245,243,235,0.95) 100%);
-    border-color: rgba(0,0,0,0.06);
-    color: #1a1a1c;
+    color: #0a0a0c;
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,1),
-      inset 0 -1px 0 rgba(0,0,0,0.06),
-      0 4px 12px -3px rgba(0,0,0,0.18);
+      inset 0 1px 0 rgba(255,255,255,0.85),
+      inset 0 -1px 0 rgba(0,0,0,0.15),
+      0 0 6px 1px var(--accent),
+      0 0 14px 2px var(--accent-soft);
   }
   .slider-glyph { font-size: 13px; opacity: 0.55; }
-  .slider-item-active .slider-glyph { opacity: 0.92; }
+  .slider-item-active .slider-glyph { opacity: 1; }
 
   /* When desktop top bar wraps the slider, center it within available space */
   .layout-desktop .slider-wrap { padding: 0; flex: 1; min-width: 0; }
