@@ -760,5 +760,10 @@ function VoiceMemo({ v, accent, isLight, onDelete }) {
   );
 }
 
-Object.assign(window, { EntryView });
+// Expose helpers app.jsx reuses inside compose.
+Object.assign(window, {
+  EntryView,
+  resizeImageToDataURL, blobToDataURL, formatDur,
+  pickAudioMime: pickMime,
+});
 })();

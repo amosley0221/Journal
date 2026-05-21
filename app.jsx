@@ -1510,6 +1510,28 @@ function findDefaultLeaf(section) {
   return cur;
 }
 
+// Flatten the sections tree to a list of leaves so the destination picker
+// can offer sub-sections / groups, not just top-level sections. Each leaf
+// carries its path (ids) and a breadcrumb (names) for display.
+function flattenLeaves(sections) {
+  const out = [];
+  function walk(node, trail) {
+    const t = [...trail, node];
+    if (node.children && node.children.length > 0) {
+      node.children.forEach((c) => walk(c, t));
+    } else {
+      out.push({
+        path:   t.map((n) => n.id),
+        crumb:  t.map((n) => n.name),
+        section: t[0],
+        node,
+      });
+    }
+  }
+  sections.forEach((s) => walk(s, []));
+  return out;
+}
+
 // ─── InkSurface — handwriting canvas with full pen palette ────────
 // Pens: pen, marker, pencil, highlight, eraser. 9 colors. 3 sizes.
 // Strokes are stored relative to a recorded canvas size so they reproduce
@@ -1678,14 +1700,36 @@ function FullCompose({ close, accent, skin, appTheme, sections, setSections, cur
   const [title, setTitle]   = React.useState('');
   const [body, setBody]     = React.useState('');
   const [strokes, setStrokes] = React.useState([]);
+  const [photos, setPhotos] = React.useState([]);
+  const [stickies, setStickies] = React.useState([]);
+  const [voice, setVoice]   = React.useState([]);
+  const [recording, setRecording] = React.useState(null);
+  const photoInputRef = React.useRef(null);
   const [paperOpen, setPaperOpen] = React.useState(false);
   const [pickerOpen, setPickerOpen] = React.useState(false);
 
-  // Section picker: defaults to the section the user is currently inside, or
-  // the first section. If none exist, save is blocked.
-  const initialSectionId = (currentPath && currentPath[0]) || (sections[0] && sections[0].id) || null;
-  const [sectionId, setSectionId] = React.useState(initialSectionId);
-  const noSections = sections.length === 0;
+  // Destination tree: flatten all leaves so users can route a new entry into
+  // any section / subsection / group / leaf, not just a top-level section.
+  const leaves = React.useMemo(() => flattenLeaves(sections), [sections]);
+  const defaultPath = React.useMemo(() => {
+    // Prefer the leaf the user is currently in.
+    if (currentPath) {
+      const lp = leaves.find((l) => l.path.join('/') === currentPath.join('/'));
+      if (lp) return lp.path;
+    }
+    // Otherwise use the first leaf under the current top-level section.
+    const topId = currentPath && currentPath[0];
+    const inTop = topId ? leaves.find((l) => l.path[0] === topId) : null;
+    if (inTop) return inTop.path;
+    // Fallback: very first leaf.
+    return leaves[0] ? leaves[0].path : null;
+  }, [leaves, currentPath]);
+  const [destPath, setDestPath] = React.useState(defaultPath);
+  React.useEffect(() => {
+    if (!destPath && defaultPath) setDestPath(defaultPath);
+  }, [destPath, defaultPath]);
+  const dest = leaves.find((l) => destPath && l.path.join('/') === destPath.join('/'));
+  const noSections = leaves.length === 0;
 
   const bg = paperBackground(paper);
   const isLight = bg.light;
@@ -1696,9 +1740,9 @@ function FullCompose({ close, accent, skin, appTheme, sections, setSections, cur
   const bodyLh   = paper === 'notebook' ? '32px' : paper === 'handwritten' ? '32px' : 1.6;
 
   function save() {
-    const hasContent = title.trim() || body.trim() || strokes.length > 0;
+    const hasContent = title.trim() || body.trim() || strokes.length > 0 || photos.length || stickies.length || voice.length;
     if (!hasContent) { close(); return; }
-    if (!sectionId) { close(); return; }
+    if (!destPath) { close(); return; }
 
     const now = new Date();
     const id = 'e-' + now.getTime().toString(36);
@@ -1716,19 +1760,92 @@ function FullCompose({ close, accent, skin, appTheme, sections, setSections, cur
       preview,
       body: body.trim() ? [{ type: 'p', text: body.trim() }] : [],
       strokes: strokes.length ? strokes : undefined,
-      stickies: [], photos: [], voice: [], backlinks: [],
+      stickies, photos, voice, backlinks: [],
     };
 
     setSections((s) => {
       const next = JSON.parse(JSON.stringify(s));
-      const root = next.find((n) => n.id === sectionId);
-      if (!root) return s;
-      const leaf = findDefaultLeaf(root);
-      leaf.entries = leaf.entries || [];
-      leaf.entries.unshift(newEntry);
+      // Walk to the chosen leaf and append.
+      let layer = next, node = null;
+      for (const id of destPath) {
+        node = layer.find((n) => n.id === id);
+        if (!node) return s;
+        layer = node.children || [];
+      }
+      if (!node) return s;
+      node.entries = node.entries || [];
+      node.entries.unshift(newEntry);
       return next;
     });
     close();
+  }
+
+  // ─── Inline asset adders (mirror the entry-view buttons) ────────
+  async function onPhotoFile(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const dataUrl = await window.resizeImageToDataURL(file, 1400);
+      setPhotos((arr) => [...arr, {
+        id: 'p-' + Date.now().toString(36), label: '',
+        src: dataUrl, x: 8, y: 18, w: 38, h: 28, hue: 200,
+      }]);
+    } catch (err) {
+      alert('Could not read that image: ' + (err.message || err));
+    }
+  }
+  function addSticky() {
+    const palette = [50, 145, 200, 280, 320, 30];
+    const hue = palette[stickies.length % palette.length];
+    setStickies((arr) => [...arr, {
+      id: 's-' + Date.now().toString(36),
+      text: 'New note',
+      x: 10 + Math.random() * 10, y: 18 + Math.random() * 10,
+      w: 30, h: 12, hue,
+    }]);
+  }
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream, { mimeType: window.pickAudioMime() });
+      const blobs = [];
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) blobs.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(blobs, { type: rec.mimeType || 'audio/webm' });
+        const dataUrl = await window.blobToDataURL(blob);
+        setVoice((arr) => [...arr, {
+          id: 'v-' + Date.now().toString(36),
+          label: '', src: dataUrl,
+          dur: window.formatDur(Math.round((Date.now() - state.start) / 1000)),
+        }]);
+        setRecording(null);
+      };
+      const state = { rec, blobs, start: Date.now(), sec: 0 };
+      setRecording(state);
+      rec.start(250);
+      const tick = setInterval(() => {
+        const elapsed = Math.round((Date.now() - state.start) / 1000);
+        state.sec = elapsed;
+        setRecording({ ...state });
+        if (elapsed >= 60) { try { rec.stop(); } catch {} clearInterval(tick); }
+      }, 250);
+      state.tick = tick;
+    } catch (err) {
+      alert('Microphone access denied or unsupported: ' + (err.message || err));
+    }
+  }
+  function stopRecording() {
+    if (!recording) return;
+    try { recording.rec.stop(); } catch {}
+    if (recording.tick) clearInterval(recording.tick);
+  }
+  function cancelRecording() {
+    if (!recording) return;
+    if (recording.tick) clearInterval(recording.tick);
+    try { recording.rec.onstop = null; recording.rec.stop(); } catch {}
+    setRecording(null);
   }
 
   function discard() {
@@ -1799,27 +1916,65 @@ function FullCompose({ close, accent, skin, appTheme, sections, setSections, cur
           <window.Icon name="x" size={18} />
         </button>
 
-        {sections.length > 0 && (
+        {leaves.length > 0 && (
           <div className="compose-bar-section" style={{ position: 'relative' }}>
-            <button onClick={() => setPickerOpen((o) => !o)} className="compose-pill" title="Section">
+            <button onClick={() => setPickerOpen((o) => !o)} className="compose-pill" title="Destination">
               <window.Icon name="layers" size={13} />
-              <span>{(sections.find((s) => s.id === sectionId) || {}).name || 'Pick section'}</span>
+              <span>
+                {dest
+                  ? dest.crumb.slice(-2).join(' · ')
+                  : 'Pick destination'}
+              </span>
               <window.Icon name="chevron" size={11} style={{ transform: 'rotate(90deg)', opacity: 0.65 }} />
             </button>
             {pickerOpen && (
-              <div className="compose-dropdown">
-                {sections.map((s) => (
-                  <button key={s.id} onClick={() => { setSectionId(s.id); setPickerOpen(false); }}
-                    className={`compose-dropdown-item ${sectionId === s.id ? 'is-active' : ''}`}>
-                    <span style={{ width: 22, textAlign: 'center' }}>{s.glyph}</span>
-                    <span style={{ flex: 1 }}>{s.name}</span>
-                    {sectionId === s.id && <window.Icon name="check" size={12} />}
-                  </button>
-                ))}
+              <div className="compose-dropdown" style={{ minWidth: 260, maxHeight: 320, overflowY: 'auto' }}>
+                {leaves.map((l) => {
+                  const isActive = dest && dest.path.join('/') === l.path.join('/');
+                  return (
+                    <button key={l.path.join('/')}
+                      onClick={() => { setDestPath(l.path); setPickerOpen(false); }}
+                      className={`compose-dropdown-item ${isActive ? 'is-active' : ''}`}>
+                      <span style={{ width: 22, textAlign: 'center', flexShrink: 0 }}>{l.section.glyph}</span>
+                      <span style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                        <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {l.crumb[l.crumb.length - 1]}
+                        </span>
+                        {l.crumb.length > 1 && (
+                          <span style={{ fontSize: 11, opacity: 0.5, fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.04em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {l.crumb.slice(0, -1).join(' · ')}
+                          </span>
+                        )}
+                      </span>
+                      {isActive && <window.Icon name="check" size={12} />}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
         )}
+
+        {/* Asset adders: photo · sticky · voice (same wiring as entry-view) */}
+        <button className="compose-bar-btn" onClick={() => photoInputRef.current && photoInputRef.current.click()} title="Add photo">
+          <window.Icon name="image" size={16} />
+        </button>
+        <input
+          ref={photoInputRef} type="file" accept="image/*"
+          onChange={onPhotoFile}
+          style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+        />
+        <button className="compose-bar-btn" onClick={addSticky} title="Add sticky note">
+          <window.Icon name="sticky" size={16} />
+        </button>
+        <button
+          className="compose-bar-btn"
+          onClick={() => (recording ? stopRecording() : startRecording())}
+          title={recording ? 'Stop recording' : 'Record voice memo'}
+          style={recording ? { background: 'oklch(0.65 0.22 25)', color: '#0a0a0c' } : undefined}
+        >
+          <window.Icon name="mic" size={16} />
+        </button>
 
         <div style={{ flex: 1 }} />
 
@@ -1884,6 +2039,30 @@ function FullCompose({ close, accent, skin, appTheme, sections, setSections, cur
           <span className="compose-mode-label">Save</span>
         </button>
       </div>
+
+      {/* Recording indicator (shared with entry-view's pattern) */}
+      {recording && (
+        <div className="compose-recording-bar">
+          <span className="compose-rec-dot" />
+          <span style={{ fontWeight: 600, letterSpacing: '-0.005em' }}>Recording…</span>
+          <span style={{ fontFamily: 'JetBrains Mono, monospace', fontVariantNumeric: 'tabular-nums', opacity: 0.85, marginLeft: 4 }}>
+            {String(Math.floor(recording.sec / 60)).padStart(2, '0')}:{String(recording.sec % 60).padStart(2, '0')}
+          </span>
+          <span style={{ flex: 1 }} />
+          <button onClick={cancelRecording} className="compose-rec-cancel">Cancel</button>
+          <button onClick={stopRecording} className="compose-rec-stop" style={{ background: accent }}>Stop &amp; save</button>
+        </div>
+      )}
+
+      {/* Attached-items chip: small summary so users see what they've added */}
+      {(photos.length || stickies.length || voice.length) > 0 && (
+        <div className="compose-attached">
+          {photos.length > 0   && <span>📷 {photos.length}</span>}
+          {stickies.length > 0 && <span>🟨 {stickies.length}</span>}
+          {voice.length > 0    && <span>🎙 {voice.length}</span>}
+          <span style={{ opacity: 0.6 }}>attached</span>
+        </div>
+      )}
 
       {noSections && (
         <div className="compose-empty-hint">
