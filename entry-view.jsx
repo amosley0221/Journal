@@ -4,11 +4,127 @@
 (() => {
 const { useState: useStateE } = React;
 
-function EntryView({ entry, accent, dark, onChangePhotos, onChangeStickies, onChangeTheme, onClose }) {
+function EntryView({ entry, accent, dark, onChangePhotos, onChangeStickies, onChangeVoice, onChangeTheme, onDeleteEntry, onClose }) {
   const [pencilMode, setPencilMode] = useStateE(false);
   const [selected, setSelected] = useStateE(null);
   const [themeOpen, setThemeOpen] = useStateE(false);
+  const [recording, setRecording] = useStateE(null);   // null | { rec, blobs, start, sec }
+  const [moreOpen, setMoreOpen]   = useStateE(false);
+  const fileInputRef = React.useRef(null);
   const scrollRef = React.useRef(null);
+
+  // ─── Add photo from file ────────────────────────────────────────
+  // Reads the picked file, resizes to <= 1400px on the longest side, and
+  // stores it as a data URL inside the entry's photos[] so it syncs through
+  // Supabase like everything else.
+  async function onPhotoFile(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ''; // allow re-picking the same file
+    if (!file) return;
+    try {
+      const dataUrl = await resizeImageToDataURL(file, 1400);
+      const newPhoto = {
+        id: 'p-' + Date.now().toString(36),
+        label: '',
+        src: dataUrl,
+        x: 8, y: 18, w: 38, h: 28, hue: 200,
+      };
+      onChangePhotos([...(entry.photos || []), newPhoto]);
+    } catch (err) {
+      alert('Could not read that image: ' + (err.message || err));
+    }
+  }
+  const addPhoto = () => fileInputRef.current && fileInputRef.current.click();
+
+  // ─── Add a sticky ──────────────────────────────────────────────
+  function addSticky() {
+    const palette = [50, 145, 200, 280, 320, 30];
+    const hue = palette[((entry.stickies || []).length) % palette.length];
+    const newSticky = {
+      id: 's-' + Date.now().toString(36),
+      text: 'New note',
+      x: 10 + Math.random() * 10, y: 18 + Math.random() * 10,
+      w: 30, h: 12, hue,
+    };
+    onChangeStickies([...(entry.stickies || []), newSticky]);
+  }
+
+  // ─── Voice recording ──────────────────────────────────────────
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream, { mimeType: pickMime() });
+      const blobs = [];
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) blobs.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(blobs, { type: rec.mimeType || 'audio/webm' });
+        const dataUrl = await blobToDataURL(blob);
+        const newVoice = {
+          id: 'v-' + Date.now().toString(36),
+          label: '', src: dataUrl,
+          dur: formatDur(Math.round((Date.now() - state.start) / 1000)),
+        };
+        if (onChangeVoice) onChangeVoice([...(entry.voice || []), newVoice]);
+        setRecording(null);
+      };
+      const state = { rec, blobs, start: Date.now(), sec: 0 };
+      setRecording(state);
+      rec.start(250);
+      // Tick the displayed seconds.
+      const tick = setInterval(() => {
+        const elapsed = Math.round((Date.now() - state.start) / 1000);
+        state.sec = elapsed;
+        setRecording({ ...state });
+        if (elapsed >= 60) { try { rec.stop(); } catch {} clearInterval(tick); }
+      }, 250);
+      state.tick = tick;
+    } catch (err) {
+      alert('Microphone access denied or unsupported: ' + (err.message || err));
+    }
+  }
+  function stopRecording() {
+    if (!recording) return;
+    try { recording.rec.stop(); } catch {}
+    if (recording.tick) clearInterval(recording.tick);
+  }
+  function cancelRecording() {
+    if (!recording) return;
+    if (recording.tick) clearInterval(recording.tick);
+    try {
+      recording.rec.onstop = null;
+      recording.rec.stop();
+    } catch {}
+    setRecording(null);
+  }
+
+  function deleteVoice(id) {
+    if (!onChangeVoice) return;
+    onChangeVoice((entry.voice || []).filter((v) => v.id !== id));
+  }
+
+  function confirmDelete() {
+    setMoreOpen(false);
+    if (!onDeleteEntry) return;
+    if (confirm(`Delete "${entry.title || 'this entry'}"? This can't be undone.`)) {
+      onDeleteEntry();
+    }
+  }
+
+  function copyAsText() {
+    setMoreOpen(false);
+    const lines = [];
+    lines.push(entry.title || 'Untitled');
+    lines.push(`${entry.date || ''}  ${entry.time || ''}`.trim());
+    lines.push('');
+    (entry.body || []).forEach((b) => {
+      if (b.type === 'h') lines.push('# ' + b.text);
+      else lines.push(b.text);
+    });
+    const txt = lines.join('\n');
+    if (navigator.clipboard) navigator.clipboard.writeText(txt).catch(() => prompt('Copy text:', txt));
+    else prompt('Copy text:', txt);
+  }
 
   const theme = entry.theme || 'dark';
   const isLight = ['parchment', 'cream'].includes(theme);
@@ -43,12 +159,48 @@ function EntryView({ entry, accent, dark, onChangePhotos, onChangeStickies, onCh
           >
             <window.Icon name="pen" size={16} />
           </button>
-          <button className="icon-btn ghost"><window.Icon name="image" size={16} /></button>
-          <button className="icon-btn ghost"><window.Icon name="sticky" size={16} /></button>
-          <button className="icon-btn ghost"><window.Icon name="mic" size={16} /></button>
-          <button className="icon-btn ghost"><window.Icon name="more" size={16} /></button>
+          <button className="icon-btn ghost" onClick={addPhoto} title="Add photo">
+            <window.Icon name="image" size={16} />
+          </button>
+          <input
+            ref={fileInputRef} type="file" accept="image/*"
+            onChange={onPhotoFile}
+            style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+          />
+          <button className="icon-btn ghost" onClick={addSticky} title="Add sticky note">
+            <window.Icon name="sticky" size={16} />
+          </button>
+          <button
+            className="icon-btn ghost"
+            onClick={() => (recording ? stopRecording() : startRecording())}
+            title={recording ? 'Stop recording' : 'Record voice memo'}
+            style={recording ? { background: 'oklch(0.65 0.22 25)', color: '#0a0a0c' } : {}}
+          >
+            <window.Icon name="mic" size={16} />
+          </button>
+          <div style={{ position: 'relative' }}>
+            <button className="icon-btn ghost" onClick={() => setMoreOpen((o) => !o)} title="More">
+              <window.Icon name="more" size={16} />
+            </button>
+            {moreOpen && (
+              <MoreMenu
+                onCopy={copyAsText}
+                onDelete={onDeleteEntry ? confirmDelete : null}
+                onClose={() => setMoreOpen(false)}
+              />
+            )}
+          </div>
         </div>
       </div>
+
+      {recording && (
+        <RecordingBar
+          sec={recording.sec}
+          accent={accent}
+          onStop={stopRecording}
+          onCancel={cancelRecording}
+        />
+      )}
 
       {/* Title block */}
       <div style={{ padding: '6px 26px 14px' }}>
@@ -151,23 +303,8 @@ function EntryView({ entry, accent, dark, onChangePhotos, onChangeStickies, onCh
             {entry.voice && entry.voice.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 20 }}>
                 {entry.voice.map((v) => (
-                  <div key={v.id} style={{
-                    display: 'flex', alignItems: 'center', gap: 12,
-                    padding: '10px 14px', borderRadius: 999,
-                    background: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)',
-                    border: isLight ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.10)',
-                    width: 'fit-content', maxWidth: '100%',
-                  }}>
-                    <div style={{
-                      width: 30, height: 30, borderRadius: 999, background: accent,
-                      color: '#0a0a0c', display: 'grid', placeItems: 'center',
-                    }}>
-                      <window.Icon name="mic" size={14} />
-                    </div>
-                    <Waveform count={28} accent={accent} dark={!isLight} />
-                    <span style={{ fontSize: 12, opacity: 0.7, fontFamily: 'ui-monospace, Menlo, monospace' }}>{v.dur}</span>
-                    <span style={{ fontSize: 13, opacity: 0.85 }}>{v.label}</span>
-                  </div>
+                  <VoiceMemo key={v.id} v={v} accent={accent} isLight={isLight}
+                    onDelete={() => deleteVoice(v.id)} />
                 ))}
               </div>
             )}
@@ -439,6 +576,186 @@ function MiniMap({ loc, accent, dark }) {
         color: dark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)',
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
       }}>◉ {loc.name}</div>
+    </div>
+  );
+}
+
+// ─── More menu (per-entry dropdown) ─────────────────────────────
+function MoreMenu({ onCopy, onDelete, onClose }) {
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    function onDoc(e) { if (ref.current && !ref.current.contains(e.target)) onClose(); }
+    function onKey(e) { if (e.key === 'Escape') onClose(); }
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+  return (
+    <div ref={ref} style={{
+      position: 'absolute', top: 'calc(100% + 6px)', right: 0,
+      minWidth: 180, padding: 4,
+      background: 'rgba(15,15,18,0.94)',
+      border: '1px solid rgba(255,255,255,0.10)',
+      borderRadius: 10,
+      backdropFilter: 'blur(30px) saturate(180%)',
+      WebkitBackdropFilter: 'blur(30px) saturate(180%)',
+      boxShadow: '0 18px 40px -12px rgba(0,0,0,0.6)',
+      zIndex: 20,
+      color: '#e9e6df',
+    }}>
+      <button onClick={onCopy} style={menuItemStyle()}>
+        <window.Icon name="link" size={13} />Copy as text
+      </button>
+      {onDelete && (
+        <button onClick={onDelete} style={{ ...menuItemStyle(), color: 'oklch(0.78 0.18 25)' }}>
+          <window.Icon name="x" size={13} />Delete entry
+        </button>
+      )}
+    </div>
+  );
+}
+function menuItemStyle() {
+  return {
+    display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+    padding: '8px 10px', borderRadius: 7,
+    background: 'transparent', border: 'none', color: 'inherit',
+    font: 'inherit', fontSize: 13, cursor: 'pointer', textAlign: 'left',
+  };
+}
+
+// ─── Recording bar ──────────────────────────────────────────────
+function RecordingBar({ sec, accent, onStop, onCancel }) {
+  const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+  const ss = String(sec % 60).padStart(2, '0');
+  return (
+    <div style={{
+      margin: '0 22px 6px',
+      padding: '10px 14px',
+      borderRadius: 999,
+      background: 'oklch(0.30 0.12 25 / 0.18)',
+      border: '1px solid oklch(0.55 0.18 25 / 0.45)',
+      display: 'flex', alignItems: 'center', gap: 12,
+      color: '#fff',
+    }}>
+      <span style={{
+        width: 10, height: 10, borderRadius: 999,
+        background: 'oklch(0.65 0.22 25)',
+        boxShadow: '0 0 12px oklch(0.65 0.22 25)',
+        animation: 'authSpin 1.2s ease-in-out infinite',
+      }} />
+      <span style={{ fontWeight: 600, letterSpacing: '-0.005em' }}>Recording…</span>
+      <span style={{ fontFamily: 'JetBrains Mono, monospace', fontVariantNumeric: 'tabular-nums', opacity: 0.85 }}>
+        {mm}:{ss}
+      </span>
+      <span style={{ flex: 1 }} />
+      <button onClick={onCancel} style={{
+        padding: '6px 12px', borderRadius: 999,
+        background: 'transparent', border: '1px solid rgba(255,255,255,0.18)',
+        color: 'inherit', font: 'inherit', fontSize: 12.5, cursor: 'pointer',
+      }}>Cancel</button>
+      <button onClick={onStop} style={{
+        padding: '6px 14px', borderRadius: 999, border: 'none',
+        background: accent, color: '#0a0a0c', font: 'inherit', fontWeight: 600,
+        fontSize: 12.5, cursor: 'pointer',
+      }}>Stop & save</button>
+    </div>
+  );
+}
+
+// ─── File / audio helpers ──────────────────────────────────────
+function resizeImageToDataURL(file, maxDim) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onerror = () => reject(new Error('read error'));
+    fr.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('image load error'));
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        // JPEG keeps the synced row payload small.
+        try { resolve(c.toDataURL('image/jpeg', 0.85)); } catch (e) { reject(e); }
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onerror = () => reject(new Error('read error'));
+    fr.onload = () => resolve(fr.result);
+    fr.readAsDataURL(blob);
+  });
+}
+function pickMime() {
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
+  for (const m of candidates) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return '';
+}
+function formatDur(sec) {
+  const m = Math.floor(sec / 60);
+  const s = String(sec % 60).padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+// ─── Voice memo bubble with playback ─────────────────────────────
+function VoiceMemo({ v, accent, isLight, onDelete }) {
+  const [playing, setPlaying] = React.useState(false);
+  const audioRef = React.useRef(null);
+  function toggle() {
+    const a = audioRef.current; if (!a) return;
+    if (playing) { a.pause(); return; }
+    a.play().catch(() => {});
+  }
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12,
+      padding: '10px 14px', borderRadius: 999,
+      background: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)',
+      border: isLight ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.10)',
+      width: 'fit-content', maxWidth: '100%',
+    }}>
+      <button onClick={toggle} aria-label={playing ? 'Pause' : 'Play'} style={{
+        width: 30, height: 30, borderRadius: 999, background: accent,
+        color: '#0a0a0c', display: 'grid', placeItems: 'center',
+        border: 'none', cursor: 'pointer', padding: 0,
+      }}>
+        {playing
+          ? <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>
+          : <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M7 5v14l12-7z"/></svg>}
+      </button>
+      <Waveform count={28} accent={accent} dark={!isLight} />
+      <span style={{ fontSize: 12, opacity: 0.7, fontFamily: 'ui-monospace, Menlo, monospace' }}>{v.dur}</span>
+      {onDelete && (
+        <button onClick={onDelete} title="Delete voice memo" style={{
+          width: 22, height: 22, borderRadius: 999,
+          background: 'transparent', border: 'none', color: 'inherit',
+          opacity: 0.55, cursor: 'pointer', padding: 0,
+          display: 'grid', placeItems: 'center',
+        }}>
+          <window.Icon name="x" size={12} />
+        </button>
+      )}
+      {v.src && (
+        <audio
+          ref={audioRef} src={v.src} preload="metadata"
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onEnded={() => setPlaying(false)}
+        />
+      )}
     </div>
   );
 }

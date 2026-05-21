@@ -214,9 +214,50 @@ function JournalApp({ skin, layout = 'mobile', session }) {
     };
   }, [entry, photoState, stickyState, themeState, entryKey]);
 
-  const onChangePhotos = (next) => setPhotoState((s) => ({ ...s, [entryKey]: next }));
+  const onChangePhotos   = (next) => setPhotoState((s) => ({ ...s, [entryKey]: next }));
   const onChangeStickies = (next) => setStickyState((s) => ({ ...s, [entryKey]: next }));
-  const onChangeTheme = (themeId) => setThemeState((s) => ({ ...s, [entryKey]: themeId }));
+  const onChangeVoice = (next) => {
+    // Voice memos mutate the underlying entry directly so they survive in
+    // the canonical sections tree (they're not draggable, so no per-key
+    // override map like photos/stickies).
+    if (!entry || !currentPath) return;
+    const eid = entry.id;
+    setSections((s) => {
+      const tree = JSON.parse(JSON.stringify(s));
+      let layer = tree, node = null;
+      for (const id of path) {
+        node = layer.find((n) => n.id === id);
+        if (!node) return s;
+        layer = node.children || [];
+      }
+      if (!node || !node.entries) return s;
+      node.entries = node.entries.map((e) => e.id === eid ? { ...e, voice: next } : e);
+      return tree;
+    });
+  };
+  const onChangeTheme    = (themeId) => setThemeState((s) => ({ ...s, [entryKey]: themeId }));
+
+  // Delete the currently-selected entry from the sections tree. Walks the
+  // tree to the leaf at `path` and removes the entry by id.
+  const onDeleteEntry = React.useCallback(() => {
+    if (!entry || !currentPath) return;
+    const eid = entry.id;
+    setSections((s) => {
+      const next = JSON.parse(JSON.stringify(s));
+      let layer = next;
+      let node = null;
+      for (const id of path) {
+        node = layer.find((n) => n.id === id);
+        if (!node) return s;
+        layer = node.children || [];
+      }
+      if (!node || !node.entries) return s;
+      node.entries = node.entries.filter((e) => e.id !== eid);
+      return next;
+    });
+    if (layout === 'phone') setPhoneShow('rail');
+    setEntryId(null);
+  }, [entry, currentPath, path, layout, setSections]);
 
   const selectSection = (id) => {
     setPhoneShow('rail');
@@ -364,7 +405,7 @@ function JournalApp({ skin, layout = 'mobile', session }) {
     <BodyRouter
       path={path} sections={sections} drillTo={drillTo} stepUp={stepUp}
       entries={entries} entry={entryWithEdits} entryId={entryId} selectEntry={selectEntry}
-      onChangePhotos={onChangePhotos} onChangeStickies={onChangeStickies} onChangeTheme={onChangeTheme}
+      onChangePhotos={onChangePhotos} onChangeStickies={onChangeStickies} onChangeVoice={onChangeVoice} onChangeTheme={onChangeTheme} onDeleteEntry={onDeleteEntry}
       accent={accent} skin={skin} appTheme={appTheme} layout={layout}
       phoneShow={phoneShow} setPhoneShow={setPhoneShow}
       openCompose={() => setOverlay('compose')}
@@ -547,7 +588,7 @@ function BodyRouter(p) {
       root={root} path={p.path}
       drillTo={p.drillTo} stepUp={p.stepUp}
       entries={p.entries} entry={p.entry} entryId={p.entryId} selectEntry={p.selectEntry}
-      onChangePhotos={p.onChangePhotos} onChangeStickies={p.onChangeStickies} onChangeTheme={p.onChangeTheme}
+      onChangePhotos={p.onChangePhotos} onChangeStickies={p.onChangeStickies} onChangeVoice={p.onChangeVoice} onChangeTheme={p.onChangeTheme} onDeleteEntry={p.onDeleteEntry}
       accent={p.accent} skin={p.skin} appTheme={p.appTheme} layout={p.layout}
       phoneShow={p.phoneShow} setPhoneShow={p.setPhoneShow}
     />
@@ -558,7 +599,7 @@ function BodyRouter(p) {
 // - depth 1: section, may have direct entries OR children
 // - depth N: drilled into a child; same rules apply
 function SectionView({ root, path, drillTo, stepUp, entries, entry, entryId, selectEntry,
-  onChangePhotos, onChangeStickies, onChangeTheme, accent, skin, appTheme, layout, phoneShow, setPhoneShow }) {
+  onChangePhotos, onChangeStickies, onChangeVoice, onChangeTheme, onDeleteEntry, accent, skin, appTheme, layout, phoneShow, setPhoneShow }) {
 
   // Walk down the path to identify current node + its parent chain
   let cur = root, chain = [root];
@@ -619,7 +660,7 @@ function SectionView({ root, path, drillTo, stepUp, entries, entry, entryId, sel
             selectEntry={selectEntry}
             accent={accent} skin={skin} appTheme={appTheme} layout={layout}
             phoneShow={phoneShow} setPhoneShow={setPhoneShow}
-            onChangePhotos={onChangePhotos} onChangeStickies={onChangeStickies} onChangeTheme={onChangeTheme}
+            onChangePhotos={onChangePhotos} onChangeStickies={onChangeStickies} onChangeVoice={onChangeVoice} onChangeTheme={onChangeTheme} onDeleteEntry={onDeleteEntry}
           />
         )
       )}
@@ -807,7 +848,7 @@ function DesktopShell({ path, setSection, sections, openSettings, openCompose, o
 
 // ─── Split view ─── (same as before but accepts onChangeTheme)
 function SplitView({ entries, entry, entryId, selectEntry, accent, skin, appTheme,
-  onChangePhotos, onChangeStickies, onChangeTheme, layout, phoneShow, setPhoneShow }) {
+  onChangePhotos, onChangeStickies, onChangeVoice, onChangeTheme, onDeleteEntry, layout, phoneShow, setPhoneShow }) {
   const isPhone = layout === 'phone';
   const showRail = !isPhone || phoneShow === 'rail';
   const showDetail = !isPhone || phoneShow === 'detail';
@@ -858,7 +899,7 @@ function SplitView({ entries, entry, entryId, selectEntry, accent, skin, appThem
         {entry ? (
           <window.EntryView
             entry={entry} accent={accent} dark={appTheme === 'dark'}
-            onChangePhotos={onChangePhotos} onChangeStickies={onChangeStickies} onChangeTheme={onChangeTheme}
+            onChangePhotos={onChangePhotos} onChangeStickies={onChangeStickies} onChangeVoice={onChangeVoice} onChangeTheme={onChangeTheme} onDeleteEntry={onDeleteEntry}
             onClose={() => { if (isPhone) setPhoneShow('rail'); }}
             showBack={isPhone}
           />

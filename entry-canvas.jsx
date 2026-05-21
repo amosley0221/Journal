@@ -103,6 +103,40 @@ function FloatBox({ item, area, onChange, onSelect, selected, accent, children, 
 // Photo placeholder — diagonal-stripe block w/ caption
 function PhotoSlot({ photo }) {
   const hue = photo.hue || 200;
+  // Real photo: data URL or remote URL via photo.src — render <img>.
+  // Falls back to the design's striped placeholder when no src is set.
+  if (photo.src) {
+    return (
+      <div style={{
+        width: '100%', height: '100%', borderRadius: 14, overflow: 'hidden',
+        border: '1px solid rgba(255,255,255,0.10)',
+        boxShadow: '0 12px 30px -10px rgba(0,0,0,0.6)',
+        position: 'relative',
+        background: '#000',
+      }}>
+        <img
+          src={photo.src}
+          alt={photo.label || ''}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', pointerEvents: 'none' }}
+          draggable={false}
+        />
+        {photo.label && (
+          <div style={{
+            position: 'absolute', left: 10, bottom: 10,
+            fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 10,
+            letterSpacing: '0.05em', textTransform: 'uppercase',
+            color: 'rgba(255,255,255,0.92)',
+            padding: '4px 8px', borderRadius: 6,
+            background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)',
+            maxWidth: 'calc(100% - 20px)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {photo.label}
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <div style={{
       width: '100%', height: '100%', borderRadius: 14, overflow: 'hidden',
