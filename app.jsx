@@ -159,6 +159,13 @@ function JournalApp({ skin, layout = 'mobile', session }) {
   const setThemeState = sync.setThemeState;
   const displayName = sync.data.displayName || '';
   const setDisplayName = sync.setDisplayName;
+  const skinId = sync.data.skinId || 'restrained';
+  const setSkinId = sync.setSkinId;
+  // Override the skin passed in by the bootstrap with the user's synced
+  // choice. The bootstrap's prop is only used as a fallback (e.g. while
+  // sync is still loading) — see `skin` references below.
+  const activeSkin = (window.SKINS && window.SKINS[skinId]) || skin;
+  skin = activeSkin;
 
   // Local-only UI state (intentionally per-device, not synced)
   const [path, setPath] = useState(['home']);  // ['home'] or [sectionId, childId?, ...]
@@ -482,6 +489,7 @@ function JournalApp({ skin, layout = 'mobile', session }) {
           accentOverride={accentOverride} setAccentOverride={setAccentOverride}
           session={session} syncStatus={sync.syncStatus}
           displayName={displayName} setDisplayName={setDisplayName}
+          skinId={skinId} setSkinId={setSkinId}
         />
       )}
       {overlay === 'compose' && (
@@ -1272,7 +1280,7 @@ function DisplayNameField({ value, onChange, accent }) {
 }
 
 // ─── Settings overlay ──────────────────────────────────────────────
-function SettingsOverlay({ close, appTheme, setAppTheme, accent, skin, sections, setSections, accentOverride, setAccentOverride, session, syncStatus, displayName, setDisplayName }) {
+function SettingsOverlay({ close, appTheme, setAppTheme, accent, skin, sections, setSections, accentOverride, setAccentOverride, session, syncStatus, displayName, setDisplayName, skinId, setSkinId }) {
   const [pwTab, setPwTab] = React.useState('keypad');
   const [tab, setTab] = React.useState('sections');
   return (
@@ -1303,6 +1311,28 @@ function SettingsOverlay({ close, appTheme, setAppTheme, accent, skin, sections,
 
       {tab === 'appearance' && (
         <>
+          <SettingsSection title="Style" subtitle="Glass-dark is the default; Skeuomorphic leans into the journal metaphor with wood, leather, and brass.">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <SkinCard
+                active={skinId === 'restrained'}
+                onClick={() => setSkinId('restrained')}
+                title="Glass dark"
+                hint="Soft glass panels"
+                previewBg="linear-gradient(135deg, #14151a 0%, #1a1a22 100%)"
+                previewAccent="oklch(0.78 0.16 145)"
+              />
+              <SkinCard
+                active={skinId === 'skeuomorphic'}
+                onClick={() => setSkinId('skeuomorphic')}
+                title="Skeuomorphic"
+                hint="Wood, leather, brass"
+                previewBg="linear-gradient(180deg, #3d2a18 0%, #2a1c0e 100%)"
+                previewAccent="#d4a850"
+                serif
+              />
+            </div>
+          </SettingsSection>
+
           <SettingsSection title="App theme">
             <div style={{ display: 'flex', gap: 10 }}>
               <ThemeMode active={appTheme === 'dark'} icon="moon" label="Dark" onClick={() => setAppTheme('dark')} />
@@ -1404,6 +1434,34 @@ function ThemeMode({ active, icon, label, onClick }) {
   return (
     <button onClick={onClick} className={`theme-mode-chip ${active ? 'theme-mode-chip-active' : ''}`}>
       <window.Icon name={icon} size={16} />{label}
+    </button>
+  );
+}
+
+// Visual style picker — a small preview card per skin.
+function SkinCard({ active, onClick, title, hint, previewBg, previewAccent, serif }) {
+  return (
+    <button onClick={onClick} className={`skin-card ${active ? 'skin-card-active' : ''}`}>
+      <div className="skin-card-preview" style={{ background: previewBg }}>
+        {/* Mock pill rail */}
+        <div className="skin-card-rail">
+          <div className="skin-card-pill is-active" style={{ background: previewAccent, color: '#1a1208' }}>Aa</div>
+          <div className="skin-card-pill" />
+          <div className="skin-card-pill" />
+        </div>
+        {/* Mock title */}
+        <div className="skin-card-title-line" style={{ fontFamily: serif ? '"Playfair Display", Georgia, serif' : 'inherit' }}>
+          Good morning
+        </div>
+        {/* Mock body bars */}
+        <div className="skin-card-bar" style={{ width: '70%' }} />
+        <div className="skin-card-bar" style={{ width: '90%' }} />
+        <div className="skin-card-bar" style={{ width: '55%' }} />
+      </div>
+      <div className="skin-card-meta">
+        <span className="skin-card-name" style={{ fontFamily: serif ? '"Playfair Display", Georgia, serif' : 'inherit' }}>{title}</span>
+        <span className="skin-card-hint">{hint}</span>
+      </div>
     </button>
   );
 }

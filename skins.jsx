@@ -119,6 +119,53 @@ function BoldBg({ theme }) {
   );
 }
 
+// 4. Skeuomorphic: walnut-desk background, ready for leather + brass surfaces.
+function SkeuomorphicBg() {
+  // Light variant doesn't make sense for a wood-desk metaphor; we render
+  // the same warm-dark base regardless of theme so all sibling components
+  // (set to the inverted accent palette) read consistently.
+  return (
+    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+      {/* Base wood color + grain stripes via repeating linear-gradients */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: [
+          /* corner vignette */
+          'radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(0,0,0,0.55))',
+          /* fine grain */
+          'repeating-linear-gradient(92deg, rgba(72, 40, 18, 0.18) 0, rgba(72, 40, 18, 0.18) 1px, transparent 1px, transparent 11px)',
+          /* wider grain */
+          'repeating-linear-gradient(95deg, rgba(110, 65, 30, 0.10) 0, rgba(110, 65, 30, 0.10) 1px, transparent 1px, transparent 21px)',
+          /* warm base */
+          'linear-gradient(180deg, #3d2a18 0%, #2a1c0e 100%)',
+        ].join(', '),
+      }}/>
+      {/* A couple of soft knots so the grain reads as wood, not just stripes */}
+      <div style={{
+        position: 'absolute', top: '14%', left: '8%', width: 120, height: 70,
+        background: 'radial-gradient(ellipse, rgba(40,22,10,0.55), transparent 65%)',
+        borderRadius: '50%',
+      }}/>
+      <div style={{
+        position: 'absolute', top: '64%', left: '72%', width: 160, height: 90,
+        background: 'radial-gradient(ellipse, rgba(40,22,10,0.50), transparent 70%)',
+        borderRadius: '50%',
+      }}/>
+      {/* Brown noise overlay for tactile finish */}
+      <div style={{
+        position: 'absolute', inset: 0, opacity: 0.45,
+        backgroundImage: 'url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'140\' height=\'140\'><filter id=\'n\'><feTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'2\' stitchTiles=\'stitch\'/><feColorMatrix values=\'0 0 0 0 0.10   0 0 0 0 0.06   0 0 0 0 0.03   0 0 0 0.6 0\'/></filter><rect width=\'140\' height=\'140\' filter=\'url(%23n)\'/></svg>")',
+        mixBlendMode: 'overlay',
+      }}/>
+      {/* Warm top light — like a lamp on the desk */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: 'radial-gradient(ellipse at 50% -10%, rgba(255,200,140,0.07), transparent 55%)',
+      }}/>
+    </div>
+  );
+}
+
 // Skin configs
 const SKINS = {
   restrained: {
@@ -141,6 +188,13 @@ const SKINS = {
     accent: 'oklch(0.82 0.18 145)',
     accentSoft: 'oklch(0.82 0.18 145 / 0.28)',
     background: BoldBg,
+  },
+  skeuomorphic: {
+    id: 'skeuomorphic',
+    name: 'Skeuomorphic',
+    accent: '#d4a850',          // brass
+    accentSoft: 'rgba(212, 168, 80, 0.22)',
+    background: SkeuomorphicBg,
   },
 };
 

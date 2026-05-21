@@ -93,6 +93,7 @@
       stickyState: {},
       themeState: {},
       displayName: '',
+      skinId: 'restrained',
     }), []);
 
     const [data, setData] = React.useState(initial);
@@ -205,6 +206,7 @@
       setStickyState: makeSetter('stickyState'),
       setThemeState: makeSetter('themeState'),
       setDisplayName: makeSetter('displayName'),
+      setSkinId: makeSetter('skinId'),
     };
   }
 
