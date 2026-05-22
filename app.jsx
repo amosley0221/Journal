@@ -1568,6 +1568,38 @@ function findDefaultLeaf(section) {
   return cur;
 }
 
+// Parse the compose textarea into structured body blocks: lines starting
+// with `# ` become headings, fenced ```...``` spans become code blocks,
+// everything else is a paragraph. Lets users mix prose and code in the
+// same textarea without a richer editor.
+function parseBodyToBlocks(raw) {
+  const blocks = [];
+  const text = raw.replace(/\r\n/g, '\n');
+  const fence = /```([\s\S]*?)```/g;
+  let last = 0;
+  let m;
+  function flushPlain(str) {
+    const trimmed = str.trim();
+    if (!trimmed) return;
+    // Split plain text into paragraphs by blank lines; promote leading
+    // "# " lines to headings.
+    trimmed.split(/\n{2,}/).forEach((para) => {
+      const p = para.trim();
+      if (!p) return;
+      if (p.startsWith('# ')) blocks.push({ type: 'h', text: p.slice(2).trim() });
+      else                    blocks.push({ type: 'p', text: p });
+    });
+  }
+  while ((m = fence.exec(text)) !== null) {
+    flushPlain(text.slice(last, m.index));
+    const code = m[1].replace(/^\n+|\n+$/g, '');
+    if (code) blocks.push({ type: 'code', text: code });
+    last = m.index + m[0].length;
+  }
+  flushPlain(text.slice(last));
+  return blocks;
+}
+
 // Flatten the sections tree to a list of leaves so the destination picker
 // can offer sub-sections / groups, not just top-level sections. Each leaf
 // carries its path (ids) and a breadcrumb (names) for display.
@@ -1763,6 +1795,36 @@ function FullCompose({ close, accent, skin, appTheme, sections, setSections, cur
   const [voice, setVoice]   = React.useState([]);
   const [recording, setRecording] = React.useState(null);
   const photoInputRef = React.useRef(null);
+  const textareaRef   = React.useRef(null);
+
+  // Insert a ``` fenced code block at the cursor in the textarea. If text is
+  // selected, wrap it; otherwise drop an empty fence and place the cursor
+  // inside it so the user can start typing immediately.
+  function insertCodeBlock() {
+    setMode('type');
+    const el = textareaRef.current;
+    const start = el ? el.selectionStart  : body.length;
+    const end   = el ? el.selectionEnd    : body.length;
+    const before = body.slice(0, start);
+    const selected = body.slice(start, end);
+    const after = body.slice(end);
+    const prefix = before && !before.endsWith('\n') ? '\n' : '';
+    const suffix = after.startsWith('\n') ? '' : '\n';
+    const open  = prefix + '```\n';
+    const close = '\n```' + suffix;
+    const next = before + open + selected + close + after;
+    setBody(next);
+    // Restore selection inside the new fence on the next tick.
+    setTimeout(() => {
+      if (!textareaRef.current) return;
+      const pos = (before + open).length + selected.length;
+      textareaRef.current.focus();
+      textareaRef.current.setSelectionRange(
+        (before + open).length,
+        pos,
+      );
+    }, 0);
+  }
   const [paperOpen, setPaperOpen] = React.useState(false);
   const [pickerOpen, setPickerOpen] = React.useState(false);
 
@@ -1816,7 +1878,7 @@ function FullCompose({ close, accent, skin, appTheme, sections, setSections, cur
       location: null,
       theme: paper,
       preview,
-      body: body.trim() ? [{ type: 'p', text: body.trim() }] : [],
+      body: body.trim() ? parseBodyToBlocks(body) : [],
       strokes: strokes.length ? strokes : undefined,
       stickies, photos, voice, backlinks: [],
     };
@@ -1946,9 +2008,10 @@ function FullCompose({ close, accent, skin, appTheme, sections, setSections, cur
         >
           {mode === 'type' ? (
             <textarea
+              ref={textareaRef}
               value={body}
               onChange={(e) => setBody(e.target.value)}
-              placeholder={paper === 'notebook' ? 'Write here on the lines…' : 'Start writing…'}
+              placeholder={paper === 'notebook' ? 'Write here on the lines…' : 'Start writing…  (use ``` for a code block, # for a heading)'}
               className="compose-textarea"
               style={{
                 fontFamily: themeBodyFont,
@@ -2024,6 +2087,9 @@ function FullCompose({ close, accent, skin, appTheme, sections, setSections, cur
         />
         <button className="compose-bar-btn" onClick={addSticky} title="Add sticky note">
           <window.Icon name="sticky" size={16} />
+        </button>
+        <button className="compose-bar-btn" onClick={insertCodeBlock} title="Insert code block">
+          <window.Icon name="code" size={16} />
         </button>
         <button
           className="compose-bar-btn"

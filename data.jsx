@@ -223,6 +223,7 @@ const I = {
   face: <><circle cx="12" cy="12" r="9"/><path d="M8.5 13a3.5 3.5 0 0 0 7 0M9 9h.01M15 9h.01"/></>,
   keypad: <><circle cx="6" cy="6" r="1.4"/><circle cx="12" cy="6" r="1.4"/><circle cx="18" cy="6" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/><circle cx="6" cy="18" r="1.4"/><circle cx="12" cy="18" r="1.4"/><circle cx="18" cy="18" r="1.4"/></>,
   pattern: <><circle cx="6" cy="6" r="1.4"/><circle cx="12" cy="6" r="1.4"/><circle cx="18" cy="6" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><path d="m6 6 6 6 6-6"/></>,
+  code: <><path d="m8 8-5 4 5 4"/><path d="M16 8l5 4-5 4"/><path d="M14 6l-4 12"/></>,
 };
 
 function Icon({ name, size = 18, stroke = 1.6, style }) {
