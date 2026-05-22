@@ -1718,6 +1718,28 @@ function InkSurface({ strokes, setStrokes, accent, dark }) {
   const undo = () => setStrokes((arr) => arr.slice(0, -1));
   const clear = () => { if (strokes.length && confirm('Clear all ink?')) setStrokes([]); };
 
+  // Mobile-only popovers — collapse 3 sizes + 9 colors into single
+  // current-state swatches so the bar fits on a phone screen. The
+  // inline lists below remain rendered for desktop and are toggled
+  // via CSS at the .ink-bar level.
+  const [colorOpen, setColorOpen] = React.useState(false);
+  const [sizeOpen, setSizeOpen]   = React.useState(false);
+  React.useEffect(() => {
+    if (!colorOpen && !sizeOpen) return;
+    function onDoc(e) {
+      // Close if clicking outside both popovers + their triggers
+      if (!e.target.closest('.ink-popover-anchor')) {
+        setColorOpen(false); setSizeOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('touchstart', onDoc);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('touchstart', onDoc);
+    };
+  }, [colorOpen, sizeOpen]);
+
   // Color palette — readable on both paper tones.
   const palette = dark
     ? ['#e9e6df', '#ff7878', '#ffb058', '#ffd479', '#7be39c', '#7adfd9', '#8ec5ff', '#c7a3ff', '#ff9fd6']
@@ -1756,20 +1778,71 @@ function InkSurface({ strokes, setStrokes, accent, dark }) {
           </button>
         ))}
         <span className="ink-bar-sep" />
-        {sizes.map((sz) => (
-          <button key={sz.id} onClick={() => setSize(sz.id)} title={sz.label}
-            className={`ink-size ${size === sz.id ? 'is-active' : ''}`}>
-            <span className="ink-size-dot" style={{ width: sz.dot, height: sz.dot, background: tool === 'erase' ? 'currentColor' : color }} />
+        {/* Inline sizes — hidden on mobile */}
+        <span className="ink-inline-only">
+          {sizes.map((sz) => (
+            <button key={sz.id} onClick={() => setSize(sz.id)} title={sz.label}
+              className={`ink-size ${size === sz.id ? 'is-active' : ''}`}>
+              <span className="ink-size-dot" style={{ width: sz.dot, height: sz.dot, background: tool === 'erase' ? 'currentColor' : color }} />
+            </button>
+          ))}
+        </span>
+        {/* Mobile single-button size with popover */}
+        <span className="ink-popover-only ink-popover-anchor" style={{ position: 'relative' }}>
+          <button
+            className="ink-size is-active"
+            onClick={(e) => { e.stopPropagation(); setSizeOpen((o) => !o); setColorOpen(false); }}
+            title={(sizes.find((x) => x.id === size) || {}).label || 'Size'}
+          >
+            <span className="ink-size-dot" style={{
+              width: (sizes.find((x) => x.id === size) || {}).dot || 7,
+              height: (sizes.find((x) => x.id === size) || {}).dot || 7,
+              background: tool === 'erase' ? 'currentColor' : color,
+            }} />
           </button>
-        ))}
+          {sizeOpen && (
+            <div className="ink-popover" onClick={(e) => e.stopPropagation()}>
+              {sizes.map((sz) => (
+                <button key={sz.id}
+                  onClick={() => { setSize(sz.id); setSizeOpen(false); }}
+                  className={`ink-size ${size === sz.id ? 'is-active' : ''}`}>
+                  <span className="ink-size-dot" style={{ width: sz.dot, height: sz.dot, background: tool === 'erase' ? 'currentColor' : color }} />
+                </button>
+              ))}
+            </div>
+          )}
+        </span>
+
         <span className="ink-bar-sep" />
-        <span className="ink-colors">
+        {/* Inline color palette — hidden on mobile */}
+        <span className="ink-colors ink-inline-only">
           {palette.map((c) => (
             <button key={c} onClick={() => setColor(c)} aria-label={c}
               className={`ink-color ${color === c ? 'is-active' : ''}`}
               style={{ background: c, borderColor: color === c ? accent : undefined }}
             />
           ))}
+        </span>
+        {/* Mobile single-button color with popover */}
+        <span className="ink-popover-only ink-popover-anchor" style={{ position: 'relative' }}>
+          <button
+            className="ink-color is-active"
+            onClick={(e) => { e.stopPropagation(); setColorOpen((o) => !o); setSizeOpen(false); }}
+            aria-label="Color"
+            style={{ background: color, borderColor: accent, width: 26, height: 26 }}
+          />
+          {colorOpen && (
+            <div className="ink-popover ink-popover-grid" onClick={(e) => e.stopPropagation()}>
+              {palette.map((c) => (
+                <button key={c}
+                  onClick={() => { setColor(c); setColorOpen(false); }}
+                  aria-label={c}
+                  className={`ink-color ${color === c ? 'is-active' : ''}`}
+                  style={{ background: c, borderColor: color === c ? accent : undefined }}
+                />
+              ))}
+            </div>
+          )}
         </span>
         <span className="ink-bar-sep" />
         <button onClick={undo} disabled={!strokes.length} className="ink-action">Undo</button>
@@ -2178,19 +2251,105 @@ function FullCompose({ close, accent, skin, appTheme, sections, setSections, cur
         </div>
       )}
 
-      {/* Attached-items chip: small summary so users see what they've added */}
+      {/* Attached-items chip + manager — tap to open a popover that lets
+          users delete any of the items they've attached. */}
       {(photos.length || stickies.length || voice.length) > 0 && (
-        <div className="compose-attached">
-          {photos.length > 0   && <span>📷 {photos.length}</span>}
-          {stickies.length > 0 && <span>🟨 {stickies.length}</span>}
-          {voice.length > 0    && <span>🎙 {voice.length}</span>}
-          <span style={{ opacity: 0.6 }}>attached</span>
-        </div>
+        <ComposeAttached
+          photos={photos} stickies={stickies} voice={voice}
+          onRemovePhoto={(id) => setPhotos((arr) => arr.filter((p) => p.id !== id))}
+          onRemoveSticky={(id) => setStickies((arr) => arr.filter((s) => s.id !== id))}
+          onRemoveVoice={(id) => setVoice((arr) => arr.filter((v) => v.id !== id))}
+        />
       )}
 
       {noSections && (
         <div className="compose-empty-hint">
           You don’t have any sections yet. Open Settings → Sections to add one, then come back to save.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Compact, tappable "Attached" chip with a popover that lists each
+// attachment with a remove button. Stays inert (chip only) when there's
+// nothing attached.
+function ComposeAttached({ photos, stickies, voice, onRemovePhoto, onRemoveSticky, onRemoveVoice }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (!open) return;
+    function onDoc(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    function onKey(e) { if (e.key === 'Escape') setOpen(false); }
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+  const totalCount = photos.length + stickies.length + voice.length;
+  return (
+    <div ref={ref} className="compose-attached-wrap">
+      <button
+        type="button"
+        className="compose-attached-btn"
+        onClick={() => setOpen((o) => !o)}
+        title="Manage attachments"
+      >
+        {photos.length > 0   && <span>📷 {photos.length}</span>}
+        {stickies.length > 0 && <span>🟨 {stickies.length}</span>}
+        {voice.length > 0    && <span>🎙 {voice.length}</span>}
+        <span style={{ opacity: 0.6 }}>attached</span>
+      </button>
+      {open && (
+        <div className="compose-attached-pop">
+          <div className="compose-attached-pop-header">
+            <span style={{ fontWeight: 600 }}>Attachments</span>
+            <span style={{ opacity: 0.55, fontSize: 12 }}>{totalCount}</span>
+          </div>
+          <div className="compose-attached-pop-body">
+            {photos.map((p) => (
+              <div key={p.id} className="compose-attached-row">
+                {p.src
+                  ? <img src={p.src} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover' }} />
+                  : <span style={{ width: 36, height: 36, display: 'grid', placeItems: 'center', borderRadius: 8, background: 'rgba(255,255,255,0.08)' }}>📷</span>}
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
+                  {p.label || 'Photo'}
+                </span>
+                <button onClick={() => onRemovePhoto(p.id)} className="compose-attached-x" aria-label="Remove">
+                  <window.Icon name="x" size={13} />
+                </button>
+              </div>
+            ))}
+            {stickies.map((s) => (
+              <div key={s.id} className="compose-attached-row">
+                <span style={{
+                  width: 36, height: 36, display: 'grid', placeItems: 'center', borderRadius: 8,
+                  background: `oklch(0.80 0.14 ${s.hue} / 0.55)`,
+                  color: '#1a1208', fontSize: 16,
+                }}>🟨</span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
+                  {s.text || 'Sticky note'}
+                </span>
+                <button onClick={() => onRemoveSticky(s.id)} className="compose-attached-x" aria-label="Remove">
+                  <window.Icon name="x" size={13} />
+                </button>
+              </div>
+            ))}
+            {voice.map((v) => (
+              <div key={v.id} className="compose-attached-row">
+                <span style={{ width: 36, height: 36, display: 'grid', placeItems: 'center', borderRadius: 8, background: 'rgba(255,255,255,0.08)' }}>🎙</span>
+                <span style={{ flex: 1, fontSize: 13 }}>
+                  Voice memo
+                  <span style={{ opacity: 0.55, fontFamily: 'JetBrains Mono, monospace', marginLeft: 8 }}>{v.dur}</span>
+                </span>
+                <button onClick={() => onRemoveVoice(v.id)} className="compose-attached-x" aria-label="Remove">
+                  <window.Icon name="x" size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
